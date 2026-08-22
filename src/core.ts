@@ -190,6 +190,11 @@ export function normalizeDecodedSessionInternal(
   const partial = options?.partial ?? false;
   const filters = options?.filters ?? DEFAULT_NORMALIZATION_FILTERS;
   const diagnostics = [...decoded.diagnostics];
+  // An incomplete source export is still a valid observable prefix. Only an
+  // explicit partial chunk receives cross-chunk tool linkage in normalizeEvent.
+  const allowMissingAssistant = diagnostics.some(
+    (diagnostic) => diagnostic.code === "incomplete_transcript",
+  );
   const body: UnstampedBodyRecord[] = [];
   const bodyBases: CanonicalSourceBasis[] = [];
   const anchors = new Map<number, Date>();
@@ -248,19 +253,17 @@ export function normalizeDecodedSessionInternal(
   }
 
   const roles = new Set(body.map((record) => record.role));
-  if (!partial) {
-    if (!roles.has("user")) {
-      throw new NormalizationError(
-        "missing_user_records",
-        "Transcript did not contain any normalizable user records.",
-      );
-    }
-    if (!roles.has("assistant")) {
-      throw new NormalizationError(
-        "missing_assistant_records",
-        "Transcript did not contain any normalizable assistant records.",
-      );
-    }
+  if (!partial && !roles.has("user")) {
+    throw new NormalizationError(
+      "missing_user_records",
+      "Transcript did not contain any normalizable user records.",
+    );
+  }
+  if (!partial && !allowMissingAssistant && !roles.has("assistant")) {
+    throw new NormalizationError(
+      "missing_assistant_records",
+      "Transcript did not contain any normalizable assistant records.",
+    );
   }
 
   const timestamps = fillTimestamps(
@@ -282,7 +285,7 @@ export function normalizeDecodedSessionInternal(
 
   const meta = buildMeta(decoded.context, modelCounts);
   const records: NormalizedRecord[] = [meta, ...stampedBody];
-  validateTranscript(records, { partial });
+  validateTranscript(records, { partial, allowMissingAssistant });
 
   const recordTimestamps: (string | null)[] = [
     null,

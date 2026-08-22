@@ -19,6 +19,8 @@ const TOOL_CALL_KEYS = new Set(["id", "name", "args"]);
  */
 export interface ValidateOptions {
   partial?: boolean;
+  /** Allow a decoder-declared incomplete turn to omit assistant content. */
+  allowMissingAssistant?: boolean;
 }
 
 export function validateTranscript(
@@ -26,6 +28,7 @@ export function validateTranscript(
   options?: ValidateOptions,
 ): asserts value is NormalizedRecord[] {
   const partial = options?.partial ?? false;
+  const allowMissingAssistant = options?.allowMissingAssistant ?? false;
   if (!Array.isArray(value) || value.length === 0) fail("Transcript must be a non-empty array.");
 
   // Collect every tool-call id first so a tool result may reference a call that
@@ -111,7 +114,7 @@ export function validateTranscript(
 
   if (!partial) {
     if (!roles.has("user")) fail("Transcript must contain at least one user record.");
-    if (!roles.has("assistant")) {
+    if (!allowMissingAssistant && !roles.has("assistant")) {
       fail("Transcript must contain at least one assistant record.");
     }
   }

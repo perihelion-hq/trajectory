@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  normalizeToCanonical,
   normalizeTranscript,
   validateTranscript,
 } from "../src/index.js";
@@ -13,6 +14,8 @@ import type { NormalizeResult, TrajectorySource } from "../src/index.js";
 const fixtures = [
   { source: "atif", name: "atif/tool-calls" },
   { source: "atif", name: "atif/cleanup" },
+  { source: "amp", name: "amp/orb-thread-export" },
+  { source: "amp", name: "amp/cleanup" },
   { source: "claude-code", name: "claude-code/tool-call" },
   { source: "claude-code", name: "claude-code/cleanup" },
   { source: "claude-code", name: "claude-code/subagent" },
@@ -59,6 +62,7 @@ describe("golden fixtures", () => {
       const input = fixtureText(
         fixture.name,
         fixture.source === "atif" ||
+          fixture.source === "amp" ||
           fixture.source === "openhands" ||
           fixture.source === "hermes" ||
           fixture.source === "gemini-cli" ||
@@ -405,6 +409,265 @@ describe("public API", () => {
         expect.objectContaining({ code: "invalid_input" }),
       );
     }
+  });
+
+  test("normalizes a complete Amp orb export without incompleteness", () => {
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: fixtureText("amp/orb-thread-export", "input.json"),
+    });
+
+    expect(result.records).toEqual(
+      expect.arrayContaining([
+        { role: "meta", source: "amp", cwd: "/workspace/example", git_branch: "main", model: "example/model" },
+        expect.objectContaining({
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "tool-1", name: "shell_command", args: '{"command":"pwd"}' },
+          ],
+        }),
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "tool-1",
+          content: '{"output":"/workspace/example","exitCode":0}',
+          ok: true,
+        }),
+      ]),
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
+      "incomplete_transcript",
+    );
+  });
+
+  test("reports incomplete Amp orb exports without inventing session terminality", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    const finalUser = structuredClone(exportDocument.messages[0]);
+    finalUser.messageId = 5;
+    finalUser.protocolMessageID = "msg-user-final";
+    exportDocument.messages.push(finalUser);
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "incomplete_transcript",
+        message: "Amp thread export ends with an unmatched user turn.",
+      }),
+    );
+  });
+
+  test("returns diagnostics when an Amp turn has no complete assistant blocks", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    const assistant = exportDocument.messages[4];
+    assistant.state = { type: "streaming" };
+    assistant.content[0].blockState = "pending";
+    exportDocument.messages = [exportDocument.messages[0], assistant];
+    const transcript = JSON.stringify(exportDocument);
+
+    const result = normalizeTranscript({ source: "amp", transcript });
+    const canonical = normalizeToCanonical({ source: "amp", transcript });
+
+    for (const diagnostics of [result.diagnostics, canonical.diagnostics]) {
+      expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "incomplete_transcript",
+      );
+    }
+    expect(result.records.map((record) => record.role)).toEqual(["meta", "user"]);
+    expect(canonical.records.map((record) => record.record_type)).toEqual([
+      "meta",
+      "user",
+    ]);
+    expect(() =>
+      validateTranscript(result.records, { allowMissingAssistant: true }),
+    ).not.toThrow();
+    expect(() =>
+      normalizeTranscript({
+        source: "amp",
+        transcript: JSON.stringify({ ...exportDocument, messages: [assistant] }),
+      }),
+    ).toThrow(expect.objectContaining({ code: "missing_user_records" }));
+  });
+
+  test("reports an Amp tool-result tail without treating it as a human turn", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages.splice(3);
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "incomplete_transcript",
+        message:
+          "Amp thread export ends after a terminal tool result without assistant continuation.",
+      }),
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Amp thread export ends with an unmatched user turn.",
+    );
+  });
+
+  test("reports non-terminal and missing Amp tool results", () => {
+    for (const status of ["running", "pending", undefined]) {
+      const exportDocument = JSON.parse(
+        fixtureText("amp/orb-thread-export", "input.json"),
+      );
+      if (status) {
+        exportDocument.messages[2].content[0].run.status = status;
+      } else {
+        exportDocument.messages.splice(2, 1);
+      }
+
+      const result = normalizeTranscript({
+        source: "amp",
+        transcript: JSON.stringify(exportDocument),
+      });
+
+      expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "incomplete_transcript",
+      );
+      expect(result.records.some((record) => record.role === "tool")).toBe(false);
+      const messages = result.diagnostics.map((diagnostic) => diagnostic.message);
+      if (status) {
+        expect(messages).toContain("Amp tool result at message 2 is not terminal.");
+        expect(messages).not.toContain(
+          "Amp thread export contains a tool call without a result.",
+        );
+      } else {
+        expect(messages).toContain(
+          "Amp thread export contains a tool call without a result.",
+        );
+      }
+    }
+  });
+
+  test("does not retain an earlier tail state after a pending Amp result", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages.splice(3);
+    const pendingResult = structuredClone(exportDocument.messages[2].content[0]);
+    pendingResult.run = { status: "pending" };
+    exportDocument.messages[2].content.push(pendingResult);
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "incomplete_transcript",
+        message: "Amp tool result at message 2 is not terminal.",
+      }),
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Amp thread export ends after a terminal tool result without assistant continuation.",
+    );
+  });
+
+  test("rejects structurally ambiguous Amp exports", () => {
+    const valid = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const duplicateMessageId = structuredClone(valid);
+    duplicateMessageId.messages[1].messageId = duplicateMessageId.messages[0].messageId;
+    const duplicateProtocolId = structuredClone(valid);
+    duplicateProtocolId.messages[1].protocolMessageID =
+      duplicateProtocolId.messages[0].protocolMessageID;
+    const unknownRole = structuredClone(valid);
+    unknownRole.messages[0].role = "system";
+    const unknownBlock = structuredClone(valid);
+    unknownBlock.messages[1].content[0].type = "stream_delta";
+    const unknownInfoBlock = structuredClone(valid);
+    unknownInfoBlock.messages[3].content[0].type = "replacement_summary";
+    const unknownResultStatus = structuredClone(valid);
+    unknownResultStatus.messages[2].content[0].run.status = "success";
+    const unknownAssistantState = structuredClone(valid);
+    unknownAssistantState.messages[1].state.type = "complet";
+    const unknownBlockState = structuredClone(valid);
+    unknownBlockState.messages[1].content[0].blockState = "partial";
+    const contradictoryToolCompletion = structuredClone(valid);
+    contradictoryToolCompletion.messages[1].content[1].complete = false;
+    const missingToolName = structuredClone(valid);
+    delete missingToolName.messages[1].content[1].name;
+    const missingToolInput = structuredClone(valid);
+    delete missingToolInput.messages[1].content[1].input;
+    const missingToolResult = structuredClone(valid);
+    delete missingToolResult.messages[2].content[0].run.result;
+
+    for (const transcript of [
+      "{",
+      "[]",
+      "{}",
+      JSON.stringify({ id: "T-missing-messages" }),
+      JSON.stringify(duplicateMessageId),
+      JSON.stringify(duplicateProtocolId),
+      JSON.stringify(unknownRole),
+      JSON.stringify(unknownBlock),
+      JSON.stringify(unknownInfoBlock),
+      JSON.stringify(unknownResultStatus),
+      JSON.stringify(unknownAssistantState),
+      JSON.stringify(unknownBlockState),
+      JSON.stringify(contradictoryToolCompletion),
+      JSON.stringify(missingToolName),
+      JSON.stringify(missingToolInput),
+      JSON.stringify(missingToolResult),
+    ]) {
+      expect(() => normalizeTranscript({ source: "amp", transcript })).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("reports every duplicate-ID Amp tool call without a result", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[1].content.push(
+      structuredClone(exportDocument.messages[1].content[1]),
+    );
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "incomplete_transcript",
+      message: "Amp thread export contains a tool call without a result.",
+      count: 1,
+    });
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "duplicate_tool_call_id",
+    );
+  });
+
+  test("delegates orphan Amp tool results to the shared core diagnostic", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[2].content[0].toolUseID = "orphan-tool";
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["orphan_tool_result", "incomplete_transcript"]),
+    );
+    expect(result.records.some((record) => record.role === "tool")).toBe(false);
   });
 
   test("accepts every published ATIF v1 schema version", () => {
@@ -995,6 +1258,27 @@ describe("partial transcript fragments", () => {
 });
 
 describe("validation", () => {
+  test("missing-assistant relaxation does not allow external tool results", () => {
+    const invalid = [
+      { role: "meta", source: "amp" },
+      {
+        role: "user",
+        content: "hello",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_outside",
+        content: "result",
+        timestamp: "2026-01-01T00:00:01.000Z",
+      },
+    ];
+
+    expect(() =>
+      validateTranscript(invalid, { allowMissingAssistant: true }),
+    ).toThrow("tool result must reference a tool call");
+  });
+
   test("rejects tool arguments that do not encode an object", () => {
     const invalid = [
       { role: "meta", source: "codex" },
