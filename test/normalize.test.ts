@@ -485,7 +485,9 @@ describe("public API", () => {
       "meta",
       "user",
     ]);
-    expect(() => validateTranscript(result.records, { partial: true })).not.toThrow();
+    expect(() =>
+      validateTranscript(result.records, { allowMissingAssistant: true }),
+    ).not.toThrow();
     expect(() =>
       normalizeTranscript({
         source: "amp",
@@ -1247,6 +1249,27 @@ describe("partial transcript fragments", () => {
 });
 
 describe("validation", () => {
+  test("missing-assistant relaxation does not allow external tool results", () => {
+    const invalid = [
+      { role: "meta", source: "amp" },
+      {
+        role: "user",
+        content: "hello",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_outside",
+        content: "result",
+        timestamp: "2026-01-01T00:00:01.000Z",
+      },
+    ];
+
+    expect(() =>
+      validateTranscript(invalid, { allowMissingAssistant: true }),
+    ).toThrow("tool result must reference a tool call");
+  });
+
   test("rejects tool arguments that do not encode an object", () => {
     const invalid = [
       { role: "meta", source: "codex" },

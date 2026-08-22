@@ -192,7 +192,7 @@ export function normalizeDecodedSessionInternal(
   const diagnostics = [...decoded.diagnostics];
   // An incomplete source export is still a valid observable prefix. Only an
   // explicit partial chunk receives cross-chunk tool linkage in normalizeEvent.
-  const allowMissingAssistant = partial || diagnostics.some(
+  const allowMissingAssistant = diagnostics.some(
     (diagnostic) => diagnostic.code === "incomplete_transcript",
   );
   const body: UnstampedBodyRecord[] = [];
@@ -259,7 +259,7 @@ export function normalizeDecodedSessionInternal(
       "Transcript did not contain any normalizable user records.",
     );
   }
-  if (!allowMissingAssistant && !roles.has("assistant")) {
+  if (!partial && !allowMissingAssistant && !roles.has("assistant")) {
     throw new NormalizationError(
       "missing_assistant_records",
       "Transcript did not contain any normalizable assistant records.",
@@ -285,7 +285,7 @@ export function normalizeDecodedSessionInternal(
 
   const meta = buildMeta(decoded.context, modelCounts);
   const records: NormalizedRecord[] = [meta, ...stampedBody];
-  validateTranscript(records, { partial: allowMissingAssistant });
+  validateTranscript(records, { partial, allowMissingAssistant });
 
   const recordTimestamps: (string | null)[] = [
     null,

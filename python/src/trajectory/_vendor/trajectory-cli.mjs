@@ -2382,6 +2382,7 @@ var TOOL_RESULT_KEYS = new Set(["role", "tool_call_id", "content", "ok", "timest
 var TOOL_CALL_KEYS = new Set(["id", "name", "args"]);
 function validateTranscript(value, options) {
   const partial = options?.partial ?? false;
+  const allowMissingAssistant = options?.allowMissingAssistant ?? false;
   if (!Array.isArray(value) || value.length === 0)
     fail("Transcript must be a non-empty array.");
   const allCallIds = collectCallIds(value);
@@ -2452,7 +2453,7 @@ function validateTranscript(value, options) {
   if (!partial) {
     if (!roles.has("user"))
       fail("Transcript must contain at least one user record.");
-    if (!roles.has("assistant")) {
+    if (!allowMissingAssistant && !roles.has("assistant")) {
       fail("Transcript must contain at least one assistant record.");
     }
   }
@@ -2606,7 +2607,7 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
   const partial = options?.partial ?? false;
   const filters = options?.filters ?? DEFAULT_NORMALIZATION_FILTERS;
   const diagnostics = [...decoded.diagnostics];
-  const allowMissingAssistant = partial || diagnostics.some((diagnostic) => diagnostic.code === "incomplete_transcript");
+  const allowMissingAssistant = diagnostics.some((diagnostic) => diagnostic.code === "incomplete_transcript");
   const body = [];
   const bodyBases = [];
   const anchors = new Map;
@@ -2642,7 +2643,7 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
   if (!partial && !roles.has("user")) {
     throw new NormalizationError("missing_user_records", "Transcript did not contain any normalizable user records.");
   }
-  if (!allowMissingAssistant && !roles.has("assistant")) {
+  if (!partial && !allowMissingAssistant && !roles.has("assistant")) {
     throw new NormalizationError("missing_assistant_records", "Transcript did not contain any normalizable assistant records.");
   }
   const timestamps = fillTimestamps(body.length, anchors, decoded.context, diagnostics);
@@ -2655,7 +2656,7 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
   });
   const meta = buildMeta(decoded.context, modelCounts);
   const records = [meta, ...stampedBody];
-  validateTranscript(records, { partial: allowMissingAssistant });
+  validateTranscript(records, { partial, allowMissingAssistant });
   const recordTimestamps = [
     null,
     ...stampedBody.map((record) => record.timestamp)
