@@ -164,12 +164,12 @@ function buildOrderId(
   const rank = type === "meta" ? "0" : "1";
   // Never derive order from record_timestamp: it can be synthesized from array
   // position and would make source_order_id depend on transport-arrival order.
-  const timestamp =
-    type === "meta"
-      ? META_ORDER_TIMESTAMP
-      : sourceSequencePrimary
-        ? MISSING_TIME_SENTINEL
-        : (sourceTimestamp ?? MISSING_TIME_SENTINEL);
+  let timestamp = sourceTimestamp ?? MISSING_TIME_SENTINEL;
+  if (type === "meta") {
+    timestamp = META_ORDER_TIMESTAMP;
+  } else if (sourceSequencePrimary) {
+    timestamp = MISSING_TIME_SENTINEL;
+  }
   const sequence =
     basis?.sourceSequence !== undefined
       ? String(basis.sourceSequence).padStart(SEQUENCE_WIDTH, "0")

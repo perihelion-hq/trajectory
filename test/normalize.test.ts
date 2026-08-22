@@ -443,7 +443,10 @@ describe("public API", () => {
     const exportDocument = JSON.parse(
       fixtureText("amp/orb-thread-export", "input.json"),
     );
-    exportDocument.messages.pop();
+    const finalUser = structuredClone(exportDocument.messages[0]);
+    finalUser.messageId = 5;
+    finalUser.protocolMessageID = "msg-user-final";
+    exportDocument.messages.push(finalUser);
 
     const result = normalizeTranscript({
       source: "amp",
@@ -455,6 +458,29 @@ describe("public API", () => {
         code: "incomplete_transcript",
         message: "Amp thread export ends with an unmatched user turn.",
       }),
+    );
+  });
+
+  test("reports an Amp tool-result tail without treating it as a human turn", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages.splice(3);
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "incomplete_transcript",
+        message:
+          "Amp thread export ends after a terminal tool result without assistant continuation.",
+      }),
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Amp thread export ends with an unmatched user turn.",
     );
   });
 
@@ -544,6 +570,22 @@ describe("public API", () => {
     });
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "duplicate_tool_call_id",
+    );
+  });
+
+  test("delegates orphan Amp tool results to the shared core diagnostic", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[2].content[0].toolUseID = "orphan-tool";
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["orphan_tool_result", "incomplete_transcript"]),
     );
   });
 

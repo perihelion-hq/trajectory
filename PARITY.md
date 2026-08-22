@@ -71,9 +71,10 @@ export had no timestamp. No incompleteness, orphan, duplicate, or synthesized
 identity diagnostic occurred.
 
 The actively written orb export normalized to 36 records with exactly one
-`incomplete_transcript` diagnostic for its unmatched final user turn. This
-preserves the observable prefix without inventing the session-end event that
-Amp does not expose. Sanitized fixtures cover the sandbox/orb envelope,
+`incomplete_transcript` diagnostic because it ended after terminal tool results
+before assistant continuation. This preserves the observable prefix without
+misclassifying tool transport as a human turn or inventing the session-end event
+that Amp does not expose. Sanitized fixtures cover the sandbox/orb envelope,
 reasoning, structured linked tools, source-native status, sparse timestamps,
 compaction info, multiple repository trees, incomplete blocks, duplicate
 terminal results, malformed/truncated JSON, duplicate identity, unsupported

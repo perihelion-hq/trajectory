@@ -31,9 +31,8 @@ export const ampAdapter: SourceAdapter = {
     const messageIds = new Set<number>();
     const protocolMessageIds = new Set<string>();
     const toolCallCounts = new Map<string, number>();
-    const terminalResultCounts = new Map<string, number>();
-    const nonterminalResultCounts = new Map<string, number>();
-    let lastConversationalRole: "user" | "assistant" | undefined;
+    const toolResultCounts = new Map<string, number>();
+    let pendingAssistantAfter: "user" | "tool_result" | undefined;
 
     for (let messageIndex = 0; messageIndex < root.messages.length; messageIndex += 1) {
       const message = root.messages[messageIndex];
@@ -85,7 +84,6 @@ export const ampAdapter: SourceAdapter = {
       if (message.role !== "user" && message.role !== "assistant") {
         invalid(`Amp message ${messageIndex} has an unsupported semantic role.`);
       }
-      lastConversationalRole = message.role;
 
       if (message.role === "user") {
         const timestamp = parseTimestamp(isObject(message.meta) ? message.meta.sentAt : undefined);
@@ -98,6 +96,7 @@ export const ampAdapter: SourceAdapter = {
             if (typeof block.text !== "string") {
               invalid(`Amp text block ${messageIndex}:${componentIndex} must contain text.`);
             }
+            pendingAssistantAfter = "user";
             events.push({
               type: "message",
               role: "user",
@@ -118,7 +117,7 @@ export const ampAdapter: SourceAdapter = {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} is malformed.`);
           }
           if (NONTERMINAL_TOOL_STATUSES.has(block.run.status)) {
-            increment(nonterminalResultCounts, callId);
+            increment(toolResultCounts, callId);
             diagnostics.push({
               code: "incomplete_transcript",
               message: `Amp tool result at message ${messageIndex} is not terminal.`,
@@ -132,7 +131,8 @@ export const ampAdapter: SourceAdapter = {
           if (!Object.hasOwn(block.run, "result")) {
             invalid(`Amp terminal tool result ${messageIndex}:${componentIndex} must contain result.`);
           }
-          increment(terminalResultCounts, callId);
+          increment(toolResultCounts, callId);
+          pendingAssistantAfter = "tool_result";
           events.push({
             type: "tool_result",
             callId,
@@ -147,6 +147,7 @@ export const ampAdapter: SourceAdapter = {
         continue;
       }
 
+      pendingAssistantAfter = undefined;
       const messageComplete =
         isObject(message.state) && message.state.type === "complete";
       if (!messageComplete) {
@@ -222,8 +223,7 @@ export const ampAdapter: SourceAdapter = {
     }
 
     for (const [callId, callCount] of toolCallCounts) {
-      const resultCount =
-        (terminalResultCounts.get(callId) ?? 0) + (nonterminalResultCounts.get(callId) ?? 0);
+      const resultCount = toolResultCounts.get(callId) ?? 0;
       if (callCount > resultCount) {
         diagnostics.push({
           code: "incomplete_transcript",
@@ -232,10 +232,16 @@ export const ampAdapter: SourceAdapter = {
         });
       }
     }
-    if (lastConversationalRole === "user") {
+    if (pendingAssistantAfter === "user") {
       diagnostics.push({
         code: "incomplete_transcript",
         message: "Amp thread export ends with an unmatched user turn.",
+        count: 1,
+      });
+    } else if (pendingAssistantAfter === "tool_result") {
+      diagnostics.push({
+        code: "incomplete_transcript",
+        message: "Amp thread export ends after a terminal tool result without assistant continuation.",
         count: 1,
       });
     }

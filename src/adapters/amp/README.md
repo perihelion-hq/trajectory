@@ -14,11 +14,12 @@ JSON so native fields are not discarded. User send times, assistant block times,
 times/model, initial cwd, and a single repository-tree ref are preserved when present.
 
 Amp has no session-end event. An incomplete assistant turn or block, `running`/`pending` or missing
-tool result, or unmatched final user turn therefore produces `incomplete_transcript`; it is not
-promoted to a fabricated session terminal. Existing core diagnostics continue to own
-orphan/duplicate tool results, duplicate call IDs, bounds, and timestamp synthesis/interpolation.
-Measured `info` records containing summary blocks are compaction/transport artifacts and are dropped
-with `noise_record_dropped` because the full export retains the original messages.
+tool result, terminal tool-result tail awaiting assistant continuation, or unmatched final text user
+turn therefore produces `incomplete_transcript`; it is not promoted to a fabricated session
+terminal. Existing core diagnostics continue to own orphan/duplicate tool results, duplicate call
+IDs, bounds, and timestamp synthesis/interpolation. Measured `info` records containing summary
+blocks are compaction/transport artifacts and are dropped with `noise_record_dropped` because the
+full export retains the original messages.
 
 Malformed or truncated JSON, missing envelope/session identity, duplicate message identity, and
 unknown semantic roles or blocks fail with `invalid_input` so format drift cannot silently lose
