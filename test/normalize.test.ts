@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  normalizeToCanonical,
   normalizeTranscript,
   validateTranscript,
 } from "../src/index.js";
@@ -461,6 +462,38 @@ describe("public API", () => {
     );
   });
 
+  test("returns diagnostics when an Amp turn has no complete assistant blocks", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    const assistant = exportDocument.messages[4];
+    assistant.state = { type: "streaming" };
+    assistant.content[0].blockState = "pending";
+    exportDocument.messages = [exportDocument.messages[0], assistant];
+    const transcript = JSON.stringify(exportDocument);
+
+    const result = normalizeTranscript({ source: "amp", transcript });
+    const canonical = normalizeToCanonical({ source: "amp", transcript });
+
+    for (const diagnostics of [result.diagnostics, canonical.diagnostics]) {
+      expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "incomplete_transcript",
+      );
+    }
+    expect(result.records.map((record) => record.role)).toEqual(["meta", "user"]);
+    expect(canonical.records.map((record) => record.record_type)).toEqual([
+      "meta",
+      "user",
+    ]);
+    expect(() => validateTranscript(result.records, { partial: true })).not.toThrow();
+    expect(() =>
+      normalizeTranscript({
+        source: "amp",
+        transcript: JSON.stringify({ ...exportDocument, messages: [assistant] }),
+      }),
+    ).toThrow(expect.objectContaining({ code: "missing_user_records" }));
+  });
+
   test("reports an Amp tool-result tail without treating it as a human turn", () => {
     const exportDocument = JSON.parse(
       fixtureText("amp/orb-thread-export", "input.json"),
@@ -587,6 +620,7 @@ describe("public API", () => {
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
       expect.arrayContaining(["orphan_tool_result", "incomplete_transcript"]),
     );
+    expect(result.records.some((record) => record.role === "tool")).toBe(false);
   });
 
   test("accepts every published ATIF v1 schema version", () => {

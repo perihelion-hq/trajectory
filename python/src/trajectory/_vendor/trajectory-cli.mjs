@@ -2604,6 +2604,7 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
   const partial = options?.partial ?? false;
   const filters = options?.filters ?? DEFAULT_NORMALIZATION_FILTERS;
   const diagnostics = [...decoded.diagnostics];
+  const allowMissingAssistant = partial || diagnostics.some((diagnostic) => diagnostic.code === "incomplete_transcript");
   const body = [];
   const bodyBases = [];
   const anchors = new Map;
@@ -2636,13 +2637,11 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
     });
   }
   const roles = new Set(body.map((record) => record.role));
-  if (!partial) {
-    if (!roles.has("user")) {
-      throw new NormalizationError("missing_user_records", "Transcript did not contain any normalizable user records.");
-    }
-    if (!roles.has("assistant")) {
-      throw new NormalizationError("missing_assistant_records", "Transcript did not contain any normalizable assistant records.");
-    }
+  if (!partial && !roles.has("user")) {
+    throw new NormalizationError("missing_user_records", "Transcript did not contain any normalizable user records.");
+  }
+  if (!allowMissingAssistant && !roles.has("assistant")) {
+    throw new NormalizationError("missing_assistant_records", "Transcript did not contain any normalizable assistant records.");
   }
   const timestamps = fillTimestamps(body.length, anchors, decoded.context, diagnostics);
   const stampedBody = body.map((record, index) => {
@@ -2654,7 +2653,7 @@ function normalizeDecodedSessionInternal(decoded, bounds, options) {
   });
   const meta = buildMeta(decoded.context, modelCounts);
   const records = [meta, ...stampedBody];
-  validateTranscript(records, { partial });
+  validateTranscript(records, { partial: allowMissingAssistant });
   const recordTimestamps = [
     null,
     ...stampedBody.map((record) => record.timestamp)
