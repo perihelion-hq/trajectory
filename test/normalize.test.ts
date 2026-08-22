@@ -593,6 +593,12 @@ describe("public API", () => {
     unknownInfoBlock.messages[3].content[0].type = "replacement_summary";
     const unknownResultStatus = structuredClone(valid);
     unknownResultStatus.messages[2].content[0].run.status = "success";
+    const unknownAssistantState = structuredClone(valid);
+    unknownAssistantState.messages[1].state.type = "complet";
+    const unknownBlockState = structuredClone(valid);
+    unknownBlockState.messages[1].content[0].blockState = "partial";
+    const contradictoryToolCompletion = structuredClone(valid);
+    contradictoryToolCompletion.messages[1].content[1].complete = false;
     const missingToolName = structuredClone(valid);
     delete missingToolName.messages[1].content[1].name;
     const missingToolInput = structuredClone(valid);
@@ -611,6 +617,9 @@ describe("public API", () => {
       JSON.stringify(unknownBlock),
       JSON.stringify(unknownInfoBlock),
       JSON.stringify(unknownResultStatus),
+      JSON.stringify(unknownAssistantState),
+      JSON.stringify(unknownBlockState),
+      JSON.stringify(contradictoryToolCompletion),
       JSON.stringify(missingToolName),
       JSON.stringify(missingToolInput),
       JSON.stringify(missingToolResult),

@@ -253,6 +253,8 @@ function invalidAtifTranscript() {
 // src/adapters/amp/index.ts
 var TERMINAL_TOOL_STATUSES = new Set(["done", "error", "cancelled"]);
 var NONTERMINAL_TOOL_STATUSES = new Set(["running", "pending"]);
+var ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming"]);
+var ASSISTANT_BLOCK_STATES = new Set(["complete", "pending"]);
 var ampAdapter = {
   source: "amp",
   decode(transcript) {
@@ -373,7 +375,10 @@ var ampAdapter = {
         continue;
       }
       pendingAssistantAfter = undefined;
-      const messageComplete = isObject(message.state) && message.state.type === "complete";
+      if (!isObject(message.state) || typeof message.state.type !== "string" || !ASSISTANT_MESSAGE_STATES.has(message.state.type)) {
+        invalid(`Amp assistant message ${messageIndex} has an unsupported state.`);
+      }
+      const messageComplete = message.state.type === "complete";
       if (!messageComplete) {
         diagnostics.push({
           code: "incomplete_transcript",
@@ -391,7 +396,13 @@ var ampAdapter = {
         if (block.type !== "text" && block.type !== "thinking" && block.type !== "tool_use") {
           invalid(`Amp assistant block ${messageIndex}:${componentIndex} has an unsupported type.`);
         }
-        const blockComplete = block.blockState === "complete" && (block.type !== "tool_use" || block.complete === true);
+        if (typeof block.blockState !== "string" || !ASSISTANT_BLOCK_STATES.has(block.blockState)) {
+          invalid(`Amp assistant block ${messageIndex}:${componentIndex} has an unsupported state.`);
+        }
+        if (block.type === "tool_use" && (block.blockState === "complete" && block.complete !== true || block.blockState === "pending" && block.complete !== undefined && block.complete !== false)) {
+          invalid(`Amp tool use ${messageIndex}:${componentIndex} has an invalid completion state.`);
+        }
+        const blockComplete = block.blockState === "complete";
         if (!blockComplete) {
           diagnostics.push({
             code: "incomplete_transcript",
