@@ -86,6 +86,7 @@ export const ampAdapter: SourceAdapter = {
       }
 
       if (message.role === "user") {
+        pendingAssistantAfter = undefined;
         const timestamp = parseTimestamp(isObject(message.meta) ? message.meta.sentAt : undefined);
         for (let componentIndex = 0; componentIndex < message.content.length; componentIndex += 1) {
           const block = message.content[componentIndex];
@@ -118,6 +119,7 @@ export const ampAdapter: SourceAdapter = {
           }
           if (NONTERMINAL_TOOL_STATUSES.has(block.run.status)) {
             increment(toolResultCounts, callId);
+            pendingAssistantAfter = undefined;
             diagnostics.push({
               code: "incomplete_transcript",
               message: `Amp tool result at message ${messageIndex} is not terminal.`,

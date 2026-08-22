@@ -540,6 +540,31 @@ describe("public API", () => {
     }
   });
 
+  test("does not retain an earlier tail state after a pending Amp result", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages.splice(3);
+    const pendingResult = structuredClone(exportDocument.messages[2].content[0]);
+    pendingResult.run = { status: "pending" };
+    exportDocument.messages[2].content.push(pendingResult);
+
+    const result = normalizeTranscript({
+      source: "amp",
+      transcript: JSON.stringify(exportDocument),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "incomplete_transcript",
+        message: "Amp tool result at message 2 is not terminal.",
+      }),
+    );
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      "Amp thread export ends after a terminal tool result without assistant continuation.",
+    );
+  });
+
   test("rejects structurally ambiguous Amp exports", () => {
     const valid = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
     const duplicateMessageId = structuredClone(valid);
