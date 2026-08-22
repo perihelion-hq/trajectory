@@ -537,6 +537,17 @@ describe("public API", () => {
         "incomplete_transcript",
       );
       expect(result.records.some((record) => record.role === "tool")).toBe(false);
+      const messages = result.diagnostics.map((diagnostic) => diagnostic.message);
+      if (status) {
+        expect(messages).toContain("Amp tool result at message 2 is not terminal.");
+        expect(messages).not.toContain(
+          "Amp thread export contains a tool call without a result.",
+        );
+      } else {
+        expect(messages).toContain(
+          "Amp thread export contains a tool call without a result.",
+        );
+      }
     }
   });
 
