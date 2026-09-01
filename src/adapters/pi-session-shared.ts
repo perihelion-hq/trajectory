@@ -7,10 +7,12 @@
  * natively; OpenClaw embeds the same SessionManager and adds its own
  * conventions on top.
  *
- * Compaction, custom, and other lifecycle entry types are ignored, matching
- * the format's own transcript readers. Failed tool results (`isError`) gain an
- * `Error:` prefix, and malformed JSONL lines are recoverable diagnostics — the
- * upstream session-file repair drops such lines. Wrapper entry ids provide
+ * Pi compaction entries become observations with every measured source fact
+ * retained as deterministic JSON. OpenClaw and non-content setting entries
+ * retain their prior behavior; unsupported Pi lifecycle entries become loss
+ * diagnostics instead of disappearing. Failed tool results (`isError`) gain
+ * an `Error:` prefix, and malformed JSONL lines are recoverable diagnostics —
+ * the upstream session-file repair drops such lines. Wrapper entry ids provide
  * native record identity; rows without ids anchor to the append-only byte
  * offset.
  */
@@ -37,6 +39,20 @@ export interface PiSessionDecodeOptions {
   sourceLabel: string;
 }
 
+const PI_COMPACTION_KEYS = [
+  "details",
+  "firstKeptEntryId",
+  "fromHook",
+  "id",
+  "parentId",
+  "summary",
+  "timestamp",
+  "tokensBefore",
+  "type",
+  "usage",
+] as const;
+const PI_SETTING_ENTRY_TYPES = new Set(["model_change", "thinking_level_change"]);
+
 export function decodePiSessionTranscript(
   transcript: string,
   options: PiSessionDecodeOptions,
@@ -59,10 +75,48 @@ export function decodePiSessionTranscript(
       continue;
     }
 
-    // Compaction, custom, and other lifecycle entries summarize or annotate
-    // existing context; the format's own transcript readers also decode only
-    // `type: "message"` rows.
-    if (row.type !== "message" || !isObject(row.message)) continue;
+    if (options.source === "pi" && row.type === "compaction") {
+      const timestamp = parseTimestamp(row.timestamp);
+      if (!isPiCompaction(row) || !timestamp) {
+        diagnostics.push({
+          code: "noise_record_dropped",
+          message: `Dropped malformed Pi compaction entry on line ${line}.`,
+          inputLine: line,
+        });
+        continue;
+      }
+      events.push({
+        type: "observation",
+        content: jsonString({
+          parentId: row.parentId,
+          summary: row.summary,
+          firstKeptEntryId: row.firstKeptEntryId,
+          tokensBefore: row.tokensBefore,
+          details: row.details,
+          usage: row.usage,
+          fromHook: row.fromHook,
+        }),
+        inputLine: line,
+        sourceRecordId: row.id,
+        componentIndex: 0,
+        timestamp,
+      });
+      continue;
+    }
+
+    if (row.type !== "message" || !isObject(row.message)) {
+      if (
+        options.source === "pi" &&
+        (typeof row.type !== "string" || !PI_SETTING_ENTRY_TYPES.has(row.type))
+      ) {
+        diagnostics.push({
+          code: "noise_record_dropped",
+          message: `Dropped unsupported Pi lifecycle entry on line ${line}.`,
+          inputLine: line,
+        });
+      }
+      continue;
+    }
     sawMessageRow = true;
     const message = row.message;
     const timestamp =
@@ -200,4 +254,34 @@ function messageTimestamp(value: unknown): Date | undefined {
 function toolArguments(value: unknown): string {
   if (typeof value === "string" && value) return value;
   return jsonString(value);
+}
+
+function isPiCompaction(row: Record<string, unknown>): row is Record<string, unknown> & {
+  details: Record<string, unknown>;
+  firstKeptEntryId: string;
+  fromHook: boolean;
+  id: string;
+  parentId: string;
+  summary: string;
+  timestamp: string;
+  tokensBefore: number;
+  type: "compaction";
+  usage: Record<string, unknown>;
+} {
+  return (
+    Object.keys(row).sort().join("\u0000") === PI_COMPACTION_KEYS.join("\u0000") &&
+    typeof row.id === "string" &&
+    row.id.length > 0 &&
+    typeof row.parentId === "string" &&
+    row.parentId.length > 0 &&
+    typeof row.timestamp === "string" &&
+    typeof row.summary === "string" &&
+    typeof row.firstKeptEntryId === "string" &&
+    row.firstKeptEntryId.length > 0 &&
+    Number.isSafeInteger(row.tokensBefore) &&
+    Number(row.tokensBefore) >= 0 &&
+    isObject(row.details) &&
+    isObject(row.usage) &&
+    typeof row.fromHook === "boolean"
+  );
 }

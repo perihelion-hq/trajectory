@@ -11,16 +11,21 @@ OpenClaw embeds the same SessionManager, so both adapters share one decoder
 (see [`../pi-session-shared.ts`](../pi-session-shared.ts)); the `openclaw`
 source additionally masks its `delivery-mirror` placeholder model.
 
-Lifecycle and extension entry types (`model_change`, `thinking_level_change`,
-`session_info`, `compaction`, `branch_summary`, `custom`, `custom_message`,
-`label`) are ignored, matching pi's own transcript readers, and message roles
-other than `user`/`assistant`/`toolResult` (for example `bashExecution` rows
-written for user-typed `!` commands) are skipped. Entries are decoded in file
-order; a session whose tree was branched in place contributes every recorded
-branch, not just the active path. Failed tool results (`isError`) gain an
-`Error:` prefix, and malformed JSONL lines are recoverable diagnostics — pi's
-own session-file repair drops such lines. Wrapper entry ids provide native
-record identity; rows without ids anchor to the append-only byte offset.
+Pi `compaction` entries become `observation` records. Their native id and
+timestamp retain identity and time; deterministic JSON content retains the
+measured `parentId`, `summary`, `firstKeptEntryId`, `tokensBefore`, `details`,
+`usage`, and `fromHook` facts. Non-content setting entries (`model_change` and
+`thinking_level_change`) are ignored. Other lifecycle or extension entries
+(`session_info`, `branch_summary`, `custom`, `custom_message`, `label`, and
+unknown types) produce `noise_record_dropped` diagnostics instead of
+disappearing. OpenClaw retains its prior ignore behavior. Message roles other
+than `user`/`assistant`/`toolResult` (for example `bashExecution` rows written
+for user-typed `!` commands) are skipped. Entries are decoded in file order; a
+session whose tree was branched in place contributes every recorded branch,
+not just the active path. Failed tool results (`isError`) gain an `Error:`
+prefix, and malformed JSONL lines are recoverable diagnostics — pi's own
+session-file repair drops such lines. Wrapper entry ids provide native record
+identity; rows without ids anchor to the append-only byte offset.
 
 ## Listing
 

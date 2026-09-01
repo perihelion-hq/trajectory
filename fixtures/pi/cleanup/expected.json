@@ -43,6 +43,16 @@
       "inputLine": 4
     },
     {
+      "code": "noise_record_dropped",
+      "message": "Dropped unsupported Pi lifecycle entry on line 2.",
+      "inputLine": 2
+    },
+    {
+      "code": "noise_record_dropped",
+      "message": "Dropped unsupported Pi lifecycle entry on line 5.",
+      "inputLine": 5
+    },
+    {
       "code": "orphan_tool_result",
       "message": "Dropped a tool result without a preceding call for \"toolu_pi_gone\".",
       "recordIndex": 5,

@@ -182,6 +182,63 @@ describe("source-native tool result status", () => {
   });
 });
 
+describe("Pi compaction", () => {
+  test("preserves every measured entry fact as one deterministic observation", () => {
+    const transcript = fixtureText("pi/compaction", "input.jsonl");
+    const first = normalizeToCanonical({ source: "pi", transcript });
+    const second = normalizeToCanonical({ source: "pi", transcript });
+    const observations = first.records.filter(
+      (record) => record.record_type === "observation",
+    );
+
+    expect(first).toEqual(second);
+    expect(first.diagnostics).toEqual([]);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      stable_source_record_id: "afbb1229",
+      source_identity_kind: "native",
+      source_timestamp: "2026-09-01T10:11:09.268Z",
+      record_timestamp: "2026-09-01T10:11:09.268Z",
+      component_index: 0,
+    });
+    expect(JSON.parse(observations[0]?.content ?? "null")).toEqual({
+      parentId: "46a64b6f",
+      summary: "",
+      firstKeptEntryId: "fdef1c2f",
+      tokensBefore: 2,
+      details: { readFiles: [], modifiedFiles: [] },
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        reasoning: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      fromHook: false,
+    });
+  });
+
+  test("reports changed compaction shapes and leaves OpenClaw behavior unchanged", () => {
+    const transcript = fixtureText("pi/compaction", "input.jsonl").replace(
+      '"fromHook":false}',
+      '"fromHook":false,"futureField":true}',
+    );
+    const pi = normalizeToCanonical({ source: "pi", transcript });
+    const openclaw = normalizeToCanonical({ source: "openclaw", transcript });
+
+    expect(pi.records.some((record) => record.record_type === "observation")).toBe(false);
+    expect(pi.diagnostics).toContainEqual({
+      code: "noise_record_dropped",
+      message: "Dropped malformed Pi compaction entry on line 8.",
+      inputLine: 8,
+    });
+    expect(openclaw.records.some((record) => record.record_type === "observation")).toBe(false);
+    expect(openclaw.diagnostics).toEqual([]);
+  });
+});
+
 describe("public API", () => {
   test("normalizes Droid tool-only messages and drops transport rows", () => {
     const transcript = [

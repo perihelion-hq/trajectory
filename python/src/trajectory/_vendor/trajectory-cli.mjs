@@ -1813,6 +1813,19 @@ function invalidLettaCodeTranscript() {
 }
 
 // src/adapters/pi-session-shared.ts
+var PI_COMPACTION_KEYS = [
+  "details",
+  "firstKeptEntryId",
+  "fromHook",
+  "id",
+  "parentId",
+  "summary",
+  "timestamp",
+  "tokensBefore",
+  "type",
+  "usage"
+];
+var PI_SETTING_ENTRY_TYPES = new Set(["model_change", "thinking_level_change"]);
 function decodePiSessionTranscript(transcript, options) {
   const diagnostics = [];
   const events = [];
@@ -1831,8 +1844,44 @@ function decodePiSessionTranscript(transcript, options) {
       }
       continue;
     }
-    if (row.type !== "message" || !isObject(row.message))
+    if (options.source === "pi" && row.type === "compaction") {
+      const timestamp2 = parseTimestamp(row.timestamp);
+      if (!isPiCompaction(row) || !timestamp2) {
+        diagnostics.push({
+          code: "noise_record_dropped",
+          message: `Dropped malformed Pi compaction entry on line ${line}.`,
+          inputLine: line
+        });
+        continue;
+      }
+      events.push({
+        type: "observation",
+        content: jsonString({
+          parentId: row.parentId,
+          summary: row.summary,
+          firstKeptEntryId: row.firstKeptEntryId,
+          tokensBefore: row.tokensBefore,
+          details: row.details,
+          usage: row.usage,
+          fromHook: row.fromHook
+        }),
+        inputLine: line,
+        sourceRecordId: row.id,
+        componentIndex: 0,
+        timestamp: timestamp2
+      });
       continue;
+    }
+    if (row.type !== "message" || !isObject(row.message)) {
+      if (options.source === "pi" && (typeof row.type !== "string" || !PI_SETTING_ENTRY_TYPES.has(row.type))) {
+        diagnostics.push({
+          code: "noise_record_dropped",
+          message: `Dropped unsupported Pi lifecycle entry on line ${line}.`,
+          inputLine: line
+        });
+      }
+      continue;
+    }
     sawMessageRow = true;
     const message = row.message;
     const timestamp = parseTimestamp(row.timestamp) ?? messageTimestamp(message.timestamp);
@@ -1943,6 +1992,9 @@ function toolArguments(value) {
   if (typeof value === "string" && value)
     return value;
   return jsonString(value);
+}
+function isPiCompaction(row) {
+  return Object.keys(row).sort().join("\x00") === PI_COMPACTION_KEYS.join("\x00") && typeof row.id === "string" && row.id.length > 0 && typeof row.parentId === "string" && row.parentId.length > 0 && typeof row.timestamp === "string" && typeof row.summary === "string" && typeof row.firstKeptEntryId === "string" && row.firstKeptEntryId.length > 0 && Number.isSafeInteger(row.tokensBefore) && Number(row.tokensBefore) >= 0 && isObject(row.details) && isObject(row.usage) && typeof row.fromHook === "boolean";
 }
 
 // src/adapters/openclaw/index.ts
