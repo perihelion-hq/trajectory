@@ -220,7 +220,7 @@ export interface AmpExecutionStream {
   threadId: string;
   /** True only when exactly one terminal result record reports success. */
   successful: boolean;
-  /** Total input and output tokens reported by the terminal result, when present. */
+  /** Total input, cache-input, and output tokens reported by the terminal result. */
   tokenCount: number;
   /** Number of assistant tool-use blocks observed in the stream. */
   toolCallCount: number;

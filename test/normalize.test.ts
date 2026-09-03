@@ -528,16 +528,49 @@ describe("public API", () => {
         subtype: "success",
         is_error: false,
         session_id: "T-11111111-1111-4111-8111-111111111111",
-        usage: { input_tokens: 7, output_tokens: 5 },
+        usage: {
+          input_tokens: 7,
+          cache_creation_input_tokens: 3,
+          cache_read_input_tokens: 11,
+          output_tokens: 5,
+        },
       },
     ].map((record) => JSON.stringify(record)).join("\n");
 
     expect(inspectAmpExecutionStream(stream)).toEqual({
       threadId: "T-11111111-1111-4111-8111-111111111111",
       successful: true,
-      tokenCount: 12,
+      tokenCount: 26,
       toolCallCount: 1,
     });
+  });
+
+  test("rejects malformed identities inside an otherwise complete Amp execution stream", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    for (const invalidSessionId of ["", 42, null]) {
+      const stream = [
+        { type: "system", session_id: threadId },
+        { type: "assistant", session_id: invalidSessionId },
+        { type: "result", subtype: "success", is_error: false, session_id: threadId },
+      ].map((record) => JSON.stringify(record)).join("\n");
+
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("rejects records after the Amp terminal result", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const stream = [
+      { type: "system", session_id: threadId },
+      { type: "result", subtype: "success", is_error: false, session_id: threadId },
+      { type: "assistant", session_id: threadId },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(() => inspectAmpExecutionStream(stream)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
   });
 
   test("recovers only an unambiguous Amp execution identity for cleanup", () => {

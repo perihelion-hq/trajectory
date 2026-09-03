@@ -172,7 +172,16 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
       );
     }
     const item = record as Record<string, unknown>;
-    if (typeof item.session_id === "string" && item.session_id.length > 0) {
+    if (
+      "session_id" in item &&
+      (typeof item.session_id !== "string" || item.session_id.length === 0)
+    ) {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} has an invalid thread identity.`,
+      );
+    }
+    if (typeof item.session_id === "string") {
       threadIds.add(item.session_id);
     }
     if (item.type === "assistant") {
@@ -191,6 +200,12 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
       }
     }
     if (item.type === "result") {
+      if (index !== lines.length - 1) {
+        throw new NormalizationError(
+          "invalid_input",
+          "Amp execution stream terminal result must be the final record.",
+        );
+      }
       if (terminal !== undefined) {
         throw new NormalizationError(
           "invalid_input",
@@ -208,11 +223,14 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
   }
   const usage = terminal.usage;
   const inputTokens = safeTokenCount(usage, "input_tokens");
+  const cacheCreationInputTokens = safeTokenCount(usage, "cache_creation_input_tokens");
+  const cacheReadInputTokens = safeTokenCount(usage, "cache_read_input_tokens");
   const outputTokens = safeTokenCount(usage, "output_tokens");
   return {
     threadId: [...threadIds][0]!,
     successful: terminal.is_error === false && terminal.subtype === "success",
-    tokenCount: inputTokens + outputTokens,
+    tokenCount:
+      inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens,
     toolCallCount,
   };
 }
@@ -345,6 +363,7 @@ export { validateTranscript } from "./validate.js";
 export {
   NormalizationError,
   type AmpExecutionIdentity,
+  type AmpExecutionStream,
   type AmpModelAttestation,
   type AssistantMessageRecord,
   type AssistantToolCallRecord,
