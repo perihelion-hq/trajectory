@@ -96,6 +96,10 @@ export function normalizeTranscript(input: NormalizeInput): NormalizeResult {
  */
 export function inspectAmpModelAttestation(transcript: string): AmpModelAttestation {
   const decoded = ampAdapter.decode(transcript);
+  const threadId = decoded.context.sourceGroupId;
+  if (!threadId) {
+    throw new NormalizationError("invalid_input", "Amp thread export must carry its root identity.");
+  }
   const observations = decoded.assistantModelObservations ?? [];
   const servedModels = [
     ...new Set(
@@ -105,6 +109,7 @@ export function inspectAmpModelAttestation(transcript: string): AmpModelAttestat
     ),
   ].sort();
   return {
+    threadId,
     assistantMessageCount: observations.length,
     attestedMessageCount: observations.filter(
       (observation) => observation.model !== undefined,

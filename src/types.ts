@@ -200,6 +200,8 @@ export interface NormalizeResult {
 
 /** Complete Amp-vendor model observations for one whole-thread export. */
 export interface AmpModelAttestation {
+  /** The native thread identifier at the root of the inspected export. */
+  threadId: string;
   /** Number of source assistant messages, independent of their content-block count. */
   assistantMessageCount: number;
   /** Number of assistant messages carrying a non-empty vendor model observation. */

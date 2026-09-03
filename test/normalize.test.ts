@@ -447,6 +447,7 @@ describe("public API", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 
     expect(inspectAmpModelAttestation(transcript)).toEqual({
+      threadId: "T-sanitized-orb-thread",
       assistantMessageCount: 2,
       attestedMessageCount: 2,
       servedModels: ["example/model"],
@@ -469,6 +470,7 @@ describe("public API", () => {
     delete exportDocument.messages[4].usage.model;
 
     expect(inspectAmpModelAttestation(JSON.stringify(exportDocument))).toEqual({
+      threadId: "T-sanitized-orb-thread",
       assistantMessageCount: 2,
       attestedMessageCount: 1,
       servedModels: ["z/model"],
@@ -497,6 +499,7 @@ describe("public API", () => {
 
     const result = inspectAmpModelAttestation(JSON.stringify(exportDocument));
 
+    expect(result.threadId).toBe("T-sanitized-orb-thread");
     expect(result.assistantMessageCount).toBe(2);
     expect(result.attestedMessageCount).toBe(2);
     expect(result.servedModels).toEqual(["example/model"]);
