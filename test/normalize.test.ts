@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpExecutionStream,
   inspectAmpModelAttestation,
   normalizeToCanonical,
   normalizeTranscript,
@@ -508,6 +509,40 @@ describe("public API", () => {
     expect(() => inspectAmpModelAttestation("{")).toThrow(
       expect.objectContaining({ code: "invalid_input" }),
     );
+  });
+
+  test("interprets one complete Amp execution stream", () => {
+    const stream = [
+      { type: "system", subtype: "init", session_id: "T-11111111-1111-4111-8111-111111111111" },
+      {
+        type: "assistant",
+        session_id: "T-11111111-1111-4111-8111-111111111111",
+        message: { content: [{ type: "text", text: "working" }, { type: "tool_use", id: "1" }] },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "T-11111111-1111-4111-8111-111111111111",
+        usage: { input_tokens: 7, output_tokens: 5 },
+      },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(inspectAmpExecutionStream(stream)).toEqual({
+      threadId: "T-11111111-1111-4111-8111-111111111111",
+      successful: true,
+      tokenCount: 12,
+      toolCallCount: 1,
+    });
+  });
+
+  test("Amp execution stream interpretation fails closed", () => {
+    expect(() => inspectAmpExecutionStream("{\n")).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+    expect(() =>
+      inspectAmpExecutionStream(JSON.stringify({ type: "result", subtype: "success", is_error: false })),
+    ).toThrow(expect.objectContaining({ code: "invalid_input" }));
   });
 
   test("reports incomplete Amp orb exports without inventing session terminality", () => {

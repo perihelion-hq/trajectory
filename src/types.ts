@@ -212,6 +212,18 @@ export interface AmpModelAttestation {
   diagnostics: Diagnostic[];
 }
 
+/** Typed identity and activity readback from one complete Amp --stream-json invocation. */
+export interface AmpExecutionStream {
+  /** The one native thread identifier carried by every applicable stream record. */
+  threadId: string;
+  /** True only when exactly one terminal result record reports success. */
+  successful: boolean;
+  /** Total input and output tokens reported by the terminal result, when present. */
+  tokenCount: number;
+  /** Number of assistant tool-use blocks observed in the stream. */
+  toolCallCount: number;
+}
+
 /**
  * Canonical record type, reusing the trajectory-v1 role vocabulary rather than
  * introducing a second taxonomy. `assistant-tool-call` is an assistant record

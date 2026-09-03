@@ -24,6 +24,7 @@ import {
 } from "./core.js";
 import type { DecodedSession, SourceAdapter } from "./internal.js";
 import type {
+  AmpExecutionStream,
   AmpModelAttestation,
   CanonicalResult,
   NormalizeInput,
@@ -113,6 +114,93 @@ export function inspectAmpModelAttestation(transcript: string): AmpModelAttestat
     ),
     diagnostics: decoded.diagnostics,
   };
+}
+
+/**
+ * Interpret one complete Amp --stream-json execution without making its
+ * Claude-compatible wire shape a downstream Roster contract.
+ */
+export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
+  const threadIds = new Set<string>();
+  let terminal: Record<string, unknown> | undefined;
+  let toolCallCount = 0;
+  const lines = stream.split(/\r?\n/u).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    throw new NormalizationError("invalid_input", "Amp execution stream is empty.");
+  }
+  for (let index = 0; index < lines.length; index += 1) {
+    let record: unknown;
+    try {
+      record = JSON.parse(lines[index]!);
+    } catch {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} is not valid JSON.`,
+      );
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} is not an object.`,
+      );
+    }
+    const item = record as Record<string, unknown>;
+    if (typeof item.session_id === "string" && item.session_id.length > 0) {
+      threadIds.add(item.session_id);
+    }
+    if (item.type === "assistant") {
+      const message = item.message;
+      if (message && typeof message === "object" && !Array.isArray(message)) {
+        const content = (message as Record<string, unknown>).content;
+        if (Array.isArray(content)) {
+          toolCallCount += content.filter(
+            (block) =>
+              block !== null &&
+              typeof block === "object" &&
+              !Array.isArray(block) &&
+              (block as Record<string, unknown>).type === "tool_use",
+          ).length;
+        }
+      }
+    }
+    if (item.type === "result") {
+      if (terminal !== undefined) {
+        throw new NormalizationError(
+          "invalid_input",
+          "Amp execution stream contains multiple terminal results.",
+        );
+      }
+      terminal = item;
+    }
+  }
+  if (threadIds.size !== 1 || terminal === undefined) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution stream must contain one thread identity and one terminal result.",
+    );
+  }
+  const usage = terminal.usage;
+  const inputTokens = safeTokenCount(usage, "input_tokens");
+  const outputTokens = safeTokenCount(usage, "output_tokens");
+  return {
+    threadId: [...threadIds][0]!,
+    successful: terminal.is_error === false && terminal.subtype === "success",
+    tokenCount: inputTokens + outputTokens,
+    toolCallCount,
+  };
+}
+
+function safeTokenCount(value: unknown, member: string): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const count = (value as Record<string, unknown>)[member];
+  if (count === undefined) return 0;
+  if (!Number.isSafeInteger(count) || (count as number) < 0) {
+    throw new NormalizationError(
+      "invalid_input",
+      `Amp execution terminal usage.${member} is invalid.`,
+    );
+  }
+  return count as number;
 }
 
 /**
