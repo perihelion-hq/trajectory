@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpModelAttestation,
   normalizeToCanonical,
   normalizeTranscript,
   validateTranscript,
@@ -437,6 +438,75 @@ describe("public API", () => {
     );
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "incomplete_transcript",
+    );
+  });
+
+  test("attests each Amp assistant source message exactly once", () => {
+    const transcript = fixtureText("amp/orb-thread-export", "input.json");
+
+    expect(inspectAmpModelAttestation(transcript)).toEqual({
+      assistantMessageCount: 2,
+      attestedMessageCount: 2,
+      servedModels: ["example/model"],
+      complete: true,
+      diagnostics: [
+        {
+          code: "noise_record_dropped",
+          message: "Dropped an Amp info record at message 3.",
+          count: 1,
+        },
+      ],
+    });
+  });
+
+  test("keeps mixed and missing Amp models visible without a meta fallback", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[1].usage.model = "z/model";
+    delete exportDocument.messages[4].usage.model;
+
+    expect(inspectAmpModelAttestation(JSON.stringify(exportDocument))).toEqual({
+      assistantMessageCount: 2,
+      attestedMessageCount: 1,
+      servedModels: ["z/model"],
+      complete: true,
+      diagnostics: [
+        {
+          code: "noise_record_dropped",
+          message: "Dropped an Amp info record at message 3.",
+          count: 1,
+        },
+      ],
+    });
+
+    exportDocument.messages[4].usage.model = "a/model";
+    expect(
+      inspectAmpModelAttestation(JSON.stringify(exportDocument)).servedModels,
+    ).toEqual(["a/model", "z/model"]);
+  });
+
+  test("reports incomplete Amp exports while retaining observed model counts", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[4].state = { type: "streaming" };
+    exportDocument.messages[4].content[0].blockState = "pending";
+
+    const result = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+
+    expect(result.assistantMessageCount).toBe(2);
+    expect(result.attestedMessageCount).toBe(2);
+    expect(result.servedModels).toEqual(["example/model"]);
+    expect(result.complete).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "incomplete_transcript",
+    );
+  });
+
+  test("Amp model attestation fails closed through the shared decoder", () => {
+    expect(() => inspectAmpModelAttestation("{")).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
     );
   });
 

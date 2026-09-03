@@ -113,6 +113,13 @@ export interface DecodedSession {
   events: DecodedEvent[];
   context: SessionContext;
   diagnostics: Diagnostic[];
+  /** Source-message model observations when the adapter exposes complete message identity. */
+  assistantModelObservations?: DecodedAssistantModelObservation[];
+}
+
+export interface DecodedAssistantModelObservation {
+  sourceRecordId: string;
+  model?: string;
 }
 
 export interface SourceAdapter {

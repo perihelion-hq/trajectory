@@ -24,6 +24,7 @@ import {
 } from "./core.js";
 import type { DecodedSession, SourceAdapter } from "./internal.js";
 import type {
+  AmpModelAttestation,
   CanonicalResult,
   NormalizeInput,
   NormalizeResult,
@@ -85,6 +86,33 @@ export function normalizeTranscript(input: NormalizeInput): NormalizeResult {
     partial: isPartialTranscript(input),
     filters,
   });
+}
+
+/**
+ * Inspect one complete Amp thread export for vendor-observed assistant models.
+ * The Amp adapter remains the sole owner of export parsing and completeness.
+ */
+export function inspectAmpModelAttestation(transcript: string): AmpModelAttestation {
+  const decoded = ampAdapter.decode(transcript);
+  const observations = decoded.assistantModelObservations ?? [];
+  const servedModels = [
+    ...new Set(
+      observations
+        .map((observation) => observation.model)
+        .filter((model): model is string => model !== undefined),
+    ),
+  ].sort();
+  return {
+    assistantMessageCount: observations.length,
+    attestedMessageCount: observations.filter(
+      (observation) => observation.model !== undefined,
+    ).length,
+    servedModels,
+    complete: !decoded.diagnostics.some(
+      (diagnostic) => diagnostic.code === "incomplete_transcript",
+    ),
+    diagnostics: decoded.diagnostics,
+  };
 }
 
 /**
@@ -201,6 +229,7 @@ export { DEFAULT_NORMALIZATION_FILTERS } from "./filters.js";
 export { validateTranscript } from "./validate.js";
 export {
   NormalizationError,
+  type AmpModelAttestation,
   type AssistantMessageRecord,
   type AssistantToolCallRecord,
   type AnyTrajectorySource,

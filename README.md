@@ -117,6 +117,10 @@ Amp, ATIF, Copilot CLI, Cursor, Gemini CLI, and OpenCode are export-only input
 contracts and intentionally return `listing_unavailable`; callers locate and
 read the exports themselves.
 
+For Amp served-model verification, `inspectAmpModelAttestation(transcript)` reuses the same Amp
+decoder and reports complete per-assistant-message observation counts, unique models, diagnostics,
+and transcript completeness without requiring callers to parse the vendor export.
+
 ```ts
 import { listTrajectories } from "@letta-ai/trajectory";
 

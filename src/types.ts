@@ -198,6 +198,20 @@ export interface NormalizeResult {
   diagnostics: Diagnostic[];
 }
 
+/** Complete Amp-vendor model observations for one whole-thread export. */
+export interface AmpModelAttestation {
+  /** Number of source assistant messages, independent of their content-block count. */
+  assistantMessageCount: number;
+  /** Number of assistant messages carrying a non-empty vendor model observation. */
+  attestedMessageCount: number;
+  /** Sorted unique non-empty model identifiers observed on assistant messages. */
+  servedModels: string[];
+  /** False when the Amp adapter observes any incomplete-transcript condition. */
+  complete: boolean;
+  /** The Amp adapter's complete diagnostic set for the export. */
+  diagnostics: Diagnostic[];
+}
+
 /**
  * Canonical record type, reusing the trajectory-v1 role vocabulary rather than
  * introducing a second taxonomy. `assistant-tool-call` is an assistant record

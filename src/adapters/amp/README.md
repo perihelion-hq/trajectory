@@ -25,3 +25,9 @@ Malformed or truncated JSON, missing envelope/session identity, duplicate messag
 unknown semantic roles or blocks fail with `invalid_input` so format drift cannot silently lose
 model-visible input. Parent-thread lineage is not decoded or inferred; an external hook payload must
 remain its authority.
+
+`inspectAmpModelAttestation(transcript)` uses this same decoder and returns the total assistant
+message count, the count carrying a non-empty `usage.model`, the sorted unique observed models, the
+adapter diagnostics, and a completeness flag derived from `incomplete_transcript`. Each source
+assistant message is counted once even when it contains several text, thinking, or tool-use blocks.
+The API does not substitute the aggregate meta model for a missing per-message observation.
