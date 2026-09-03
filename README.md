@@ -120,6 +120,8 @@ read the exports themselves.
 For Amp served-model verification, `inspectAmpModelAttestation(transcript)` reuses the same Amp
 decoder and reports complete per-assistant-message observation counts, unique models, diagnostics,
 and transcript completeness without requiring callers to parse the vendor export.
+`inspectAmpExecutionIdentity(stream)` recovers only a single unambiguous thread identity from a
+possibly incomplete native execution stream so the process owner can clean up work it just created.
 
 ```ts
 import { listTrajectories } from "@letta-ai/trajectory";

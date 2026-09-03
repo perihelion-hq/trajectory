@@ -224,6 +224,12 @@ export interface AmpExecutionStream {
   toolCallCount: number;
 }
 
+/** Best-effort native identity recovered for cleanup from an Amp execution stream. */
+export interface AmpExecutionIdentity {
+  /** The sole non-empty native identity observed, or null when ownership is ambiguous. */
+  threadId: string | null;
+}
+
 /**
  * Canonical record type, reusing the trajectory-v1 role vocabulary rather than
  * introducing a second taxonomy. `assistant-tool-call` is an assistant record

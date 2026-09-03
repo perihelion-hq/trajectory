@@ -24,6 +24,7 @@ import {
 } from "./core.js";
 import type { DecodedSession, SourceAdapter } from "./internal.js";
 import type {
+  AmpExecutionIdentity,
   AmpExecutionStream,
   AmpModelAttestation,
   CanonicalResult,
@@ -114,6 +115,27 @@ export function inspectAmpModelAttestation(transcript: string): AmpModelAttestat
     ),
     diagnostics: decoded.diagnostics,
   };
+}
+
+/**
+ * Recover only an unambiguous Amp thread identity from a possibly incomplete
+ * --stream-json result so the process owner can clean up work it just created.
+ */
+export function inspectAmpExecutionIdentity(stream: string): AmpExecutionIdentity {
+  const threadIds = new Set<string>();
+  for (const line of stream.split(/\r?\n/u)) {
+    if (line.trim().length === 0) continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+    const threadId = (record as Record<string, unknown>).session_id;
+    if (typeof threadId === "string" && threadId.length > 0) threadIds.add(threadId);
+  }
+  return { threadId: threadIds.size === 1 ? [...threadIds][0]! : null };
 }
 
 /**
@@ -317,6 +339,7 @@ export { DEFAULT_NORMALIZATION_FILTERS } from "./filters.js";
 export { validateTranscript } from "./validate.js";
 export {
   NormalizationError,
+  type AmpExecutionIdentity,
   type AmpModelAttestation,
   type AssistantMessageRecord,
   type AssistantToolCallRecord,

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpExecutionIdentity,
   inspectAmpExecutionStream,
   inspectAmpModelAttestation,
   normalizeToCanonical,
@@ -534,6 +535,23 @@ describe("public API", () => {
       tokenCount: 12,
       toolCallCount: 1,
     });
+  });
+
+  test("recovers only an unambiguous Amp execution identity for cleanup", () => {
+    const threadId = "T-11111111-1111-7111-8111-111111111111";
+    const stream = [
+      JSON.stringify({ type: "system", session_id: threadId }),
+      "{malformed",
+      JSON.stringify({ type: "assistant", session_id: threadId }),
+    ].join("\n");
+
+    expect(inspectAmpExecutionIdentity(stream)).toEqual({ threadId });
+    expect(
+      inspectAmpExecutionIdentity(
+        `${stream}\n${JSON.stringify({ session_id: "T-22222222-2222-7222-8222-222222222222" })}`,
+      ),
+    ).toEqual({ threadId: null });
+    expect(inspectAmpExecutionIdentity("{malformed\n")).toEqual({ threadId: null });
   });
 
   test("Amp execution stream interpretation fails closed", () => {
