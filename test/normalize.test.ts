@@ -580,6 +580,51 @@ describe("public API", () => {
     }
   });
 
+  test("requires identities on Amp init, assistant, and result records", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const records = [
+      { type: "system", subtype: "init", session_id: threadId },
+      { type: "assistant", session_id: threadId, message: { content: [] } },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    ];
+
+    for (const missingIdentityIndex of [0, 1, 2]) {
+      const malformed: Record<string, unknown>[] = structuredClone(records);
+      delete malformed[missingIdentityIndex]!["session_id"];
+      const stream = malformed.map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        "invalid thread identity",
+      );
+    }
+  });
+
+  test("rejects malformed Amp assistant content instead of undercounting tools", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    for (const message of [undefined, null, [], {}, { content: null }, { content: {} }]) {
+      const stream = [
+        { type: "system", subtype: "init", session_id: threadId },
+        { type: "assistant", session_id: threadId, message },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: threadId,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n");
+
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        "invalid assistant content",
+      );
+    }
+  });
+
   test("rejects records after the Amp terminal result", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
     const stream = [

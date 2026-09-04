@@ -172,8 +172,10 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
       );
     }
     const item = record as Record<string, unknown>;
+    const requiresThreadId =
+      index === 0 || item.type === "assistant" || item.type === "result";
     if (
-      "session_id" in item &&
+      (requiresThreadId || "session_id" in item) &&
       (typeof item.session_id !== "string" || item.session_id.trim().length === 0)
     ) {
       throw new NormalizationError(
@@ -195,18 +197,26 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     }
     if (item.type === "assistant") {
       const message = item.message;
-      if (message && typeof message === "object" && !Array.isArray(message)) {
-        const content = (message as Record<string, unknown>).content;
-        if (Array.isArray(content)) {
-          toolCallCount += content.filter(
-            (block) =>
-              block !== null &&
-              typeof block === "object" &&
-              !Array.isArray(block) &&
-              (block as Record<string, unknown>).type === "tool_use",
-          ).length;
-        }
+      if (!message || typeof message !== "object" || Array.isArray(message)) {
+        throw new NormalizationError(
+          "invalid_input",
+          `Amp execution stream line ${index + 1} has invalid assistant content.`,
+        );
       }
+      const content = (message as Record<string, unknown>).content;
+      if (!Array.isArray(content)) {
+        throw new NormalizationError(
+          "invalid_input",
+          `Amp execution stream line ${index + 1} has invalid assistant content.`,
+        );
+      }
+      toolCallCount += content.filter(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          !Array.isArray(block) &&
+          (block as Record<string, unknown>).type === "tool_use",
+      ).length;
     }
     if (item.type === "result") {
       if (index !== lines.length - 1) {
