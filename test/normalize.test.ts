@@ -563,7 +563,7 @@ describe("public API", () => {
   test("rejects records after the Amp terminal result", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
     const stream = [
-      { type: "system", session_id: threadId },
+      { type: "system", subtype: "init", session_id: threadId },
       { type: "result", subtype: "success", is_error: false, session_id: threadId },
       { type: "assistant", session_id: threadId },
     ].map((record) => JSON.stringify(record)).join("\n");
@@ -571,6 +571,19 @@ describe("public API", () => {
     expect(() => inspectAmpExecutionStream(stream)).toThrow(
       expect.objectContaining({ code: "invalid_input" }),
     );
+  });
+
+  test("requires exactly one initial Amp system init record", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const result = { type: "result", subtype: "success", is_error: false, session_id: threadId };
+    const init = { type: "system", subtype: "init", session_id: threadId };
+
+    for (const records of [[result], [init, init, result]]) {
+      const stream = records.map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
   });
 
   test("recovers only an unambiguous Amp execution identity for cleanup", () => {

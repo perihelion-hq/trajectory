@@ -184,6 +184,15 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     if (typeof item.session_id === "string") {
       threadIds.add(item.session_id);
     }
+    if (
+      (index === 0 && (item.type !== "system" || item.subtype !== "init")) ||
+      (index > 0 && item.type === "system" && item.subtype === "init")
+    ) {
+      throw new NormalizationError(
+        "invalid_input",
+        "Amp execution stream must begin with exactly one system init record.",
+      );
+    }
     if (item.type === "assistant") {
       const message = item.message;
       if (message && typeof message === "object" && !Array.isArray(message)) {
@@ -204,12 +213,6 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
         throw new NormalizationError(
           "invalid_input",
           "Amp execution stream terminal result must be the final record.",
-        );
-      }
-      if (terminal !== undefined) {
-        throw new NormalizationError(
-          "invalid_input",
-          "Amp execution stream contains multiple terminal results.",
         );
       }
       terminal = item;
