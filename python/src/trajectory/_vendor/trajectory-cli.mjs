@@ -56,7 +56,7 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function nonemptyString(value) {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 function parseTimestamp(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime()))

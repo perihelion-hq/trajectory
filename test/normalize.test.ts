@@ -513,6 +513,20 @@ describe("public API", () => {
     expect(() => inspectAmpModelAttestation("{")).toThrow(
       expect.objectContaining({ code: "invalid_input" }),
     );
+
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.id = "   ";
+    expect(() => inspectAmpModelAttestation(JSON.stringify(exportDocument))).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+
+    exportDocument.id = "T-sanitized-orb-thread";
+    exportDocument.messages[1].usage.model = "   ";
+    const result = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+    expect(result.attestedMessageCount).toBe(1);
+    expect(result.servedModels).toEqual(["example/model"]);
   });
 
   test("interprets one complete Amp execution stream", () => {
@@ -547,11 +561,17 @@ describe("public API", () => {
 
   test("rejects malformed identities inside an otherwise complete Amp execution stream", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
-    for (const invalidSessionId of ["", 42, null]) {
+    for (const invalidSessionId of ["", "   ", 42, null]) {
       const stream = [
         { type: "system", session_id: threadId },
         { type: "assistant", session_id: invalidSessionId },
-        { type: "result", subtype: "success", is_error: false, session_id: threadId },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: threadId,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
       ].map((record) => JSON.stringify(record)).join("\n");
 
       expect(() => inspectAmpExecutionStream(stream)).toThrow(
@@ -564,7 +584,13 @@ describe("public API", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
     const stream = [
       { type: "system", subtype: "init", session_id: threadId },
-      { type: "result", subtype: "success", is_error: false, session_id: threadId },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
       { type: "assistant", session_id: threadId },
     ].map((record) => JSON.stringify(record)).join("\n");
 
@@ -575,7 +601,13 @@ describe("public API", () => {
 
   test("requires exactly one initial Amp system init record", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
-    const result = { type: "result", subtype: "success", is_error: false, session_id: threadId };
+    const result = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: threadId,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    };
     const init = { type: "system", subtype: "init", session_id: threadId };
 
     for (const records of [[result], [init, init, result]]) {
@@ -601,6 +633,9 @@ describe("public API", () => {
       ),
     ).toEqual({ threadId: null });
     expect(inspectAmpExecutionIdentity("{malformed\n")).toEqual({ threadId: null });
+    expect(
+      inspectAmpExecutionIdentity(JSON.stringify({ session_id: "   " })),
+    ).toEqual({ threadId: null });
   });
 
   test("Amp execution stream interpretation fails closed", () => {
@@ -610,6 +645,55 @@ describe("public API", () => {
     expect(() =>
       inspectAmpExecutionStream(JSON.stringify({ type: "result", subtype: "success", is_error: false })),
     ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+  });
+
+  test("requires complete Amp terminal status and token usage", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    const terminal = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: threadId,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    };
+    const malformed = [
+      { ...terminal, subtype: undefined },
+      { ...terminal, subtype: "   " },
+      { ...terminal, is_error: undefined },
+      { ...terminal, usage: undefined },
+      { ...terminal, usage: [] },
+      { ...terminal, usage: { output_tokens: 0 } },
+      { ...terminal, usage: { input_tokens: 0 } },
+    ];
+
+    for (const result of malformed) {
+      const stream = [init, result].map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("rejects an unsafe Amp terminal token total", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const stream = [
+      { type: "system", subtype: "init", session_id: threadId },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: {
+          input_tokens: Number.MAX_SAFE_INTEGER,
+          output_tokens: 1,
+        },
+      },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(() => inspectAmpExecutionStream(stream)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
   });
 
   test("reports incomplete Amp orb exports without inventing session terminality", () => {

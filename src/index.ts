@@ -138,7 +138,7 @@ export function inspectAmpExecutionIdentity(stream: string): AmpExecutionIdentit
     }
     if (!record || typeof record !== "object" || Array.isArray(record)) continue;
     const threadId = (record as Record<string, unknown>).session_id;
-    if (typeof threadId === "string" && threadId.length > 0) threadIds.add(threadId);
+    if (typeof threadId === "string" && threadId.trim().length > 0) threadIds.add(threadId);
   }
   return { threadId: threadIds.size === 1 ? [...threadIds][0]! : null };
 }
@@ -174,7 +174,7 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     const item = record as Record<string, unknown>;
     if (
       "session_id" in item &&
-      (typeof item.session_id !== "string" || item.session_id.length === 0)
+      (typeof item.session_id !== "string" || item.session_id.trim().length === 0)
     ) {
       throw new NormalizationError(
         "invalid_input",
@@ -224,24 +224,42 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
       "Amp execution stream must contain one thread identity and one terminal result.",
     );
   }
-  const usage = terminal.usage;
-  const inputTokens = safeTokenCount(usage, "input_tokens");
-  const cacheCreationInputTokens = safeTokenCount(usage, "cache_creation_input_tokens");
-  const cacheReadInputTokens = safeTokenCount(usage, "cache_read_input_tokens");
-  const outputTokens = safeTokenCount(usage, "output_tokens");
+  if (
+    typeof terminal.subtype !== "string" ||
+    terminal.subtype.trim().length === 0 ||
+    typeof terminal.is_error !== "boolean" ||
+    !terminal.usage ||
+    typeof terminal.usage !== "object" ||
+    Array.isArray(terminal.usage)
+  ) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution terminal status or usage is invalid.",
+    );
+  }
+  const usage = terminal.usage as Record<string, unknown>;
+  const inputTokens = requiredTokenCount(usage, "input_tokens");
+  const cacheCreationInputTokens = optionalTokenCount(usage, "cache_creation_input_tokens");
+  const cacheReadInputTokens = optionalTokenCount(usage, "cache_read_input_tokens");
+  const outputTokens = requiredTokenCount(usage, "output_tokens");
+  const tokenCount =
+    inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens;
+  if (!Number.isSafeInteger(tokenCount)) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution terminal token total is invalid.",
+    );
+  }
   return {
     threadId: [...threadIds][0]!,
     successful: terminal.is_error === false && terminal.subtype === "success",
-    tokenCount:
-      inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens,
+    tokenCount,
     toolCallCount,
   };
 }
 
-function safeTokenCount(value: unknown, member: string): number {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
-  const count = (value as Record<string, unknown>)[member];
-  if (count === undefined) return 0;
+function requiredTokenCount(usage: Record<string, unknown>, member: string): number {
+  const count = usage[member];
   if (!Number.isSafeInteger(count) || (count as number) < 0) {
     throw new NormalizationError(
       "invalid_input",
@@ -249,6 +267,10 @@ function safeTokenCount(value: unknown, member: string): number {
     );
   }
   return count as number;
+}
+
+function optionalTokenCount(usage: Record<string, unknown>, member: string): number {
+  return usage[member] === undefined ? 0 : requiredTokenCount(usage, member);
 }
 
 /**
