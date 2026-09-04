@@ -563,7 +563,7 @@ describe("public API", () => {
     const threadId = "T-11111111-1111-4111-8111-111111111111";
     for (const invalidSessionId of ["", "   ", 42, null]) {
       const stream = [
-        { type: "system", session_id: threadId },
+        { type: "system", subtype: "init", session_id: threadId },
         { type: "assistant", session_id: invalidSessionId },
         {
           type: "result",
