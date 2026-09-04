@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpExecutionIdentity,
+  inspectAmpExecutionStream,
+  inspectAmpModelAttestation,
   normalizeToCanonical,
   normalizeTranscript,
   validateTranscript,
@@ -437,6 +440,304 @@ describe("public API", () => {
     );
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "incomplete_transcript",
+    );
+  });
+
+  test("attests each Amp assistant source message exactly once", () => {
+    const transcript = fixtureText("amp/orb-thread-export", "input.json");
+
+    expect(inspectAmpModelAttestation(transcript)).toEqual({
+      threadId: "T-sanitized-orb-thread",
+      assistantMessageCount: 2,
+      attestedMessageCount: 2,
+      servedModels: ["example/model"],
+      complete: true,
+      diagnostics: [
+        {
+          code: "noise_record_dropped",
+          message: "Dropped an Amp info record at message 3.",
+          count: 1,
+        },
+      ],
+    });
+  });
+
+  test("keeps mixed and missing Amp models visible without a meta fallback", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[1].usage.model = "z/model";
+    delete exportDocument.messages[4].usage.model;
+
+    expect(inspectAmpModelAttestation(JSON.stringify(exportDocument))).toEqual({
+      threadId: "T-sanitized-orb-thread",
+      assistantMessageCount: 2,
+      attestedMessageCount: 1,
+      servedModels: ["z/model"],
+      complete: true,
+      diagnostics: [
+        {
+          code: "noise_record_dropped",
+          message: "Dropped an Amp info record at message 3.",
+          count: 1,
+        },
+      ],
+    });
+
+    exportDocument.messages[4].usage.model = "a/model";
+    expect(
+      inspectAmpModelAttestation(JSON.stringify(exportDocument)).servedModels,
+    ).toEqual(["a/model", "z/model"]);
+  });
+
+  test("reports incomplete Amp exports while retaining observed model counts", () => {
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.messages[4].state = { type: "streaming" };
+    exportDocument.messages[4].content[0].blockState = "pending";
+
+    const result = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+
+    expect(result.threadId).toBe("T-sanitized-orb-thread");
+    expect(result.assistantMessageCount).toBe(2);
+    expect(result.attestedMessageCount).toBe(2);
+    expect(result.servedModels).toEqual(["example/model"]);
+    expect(result.complete).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "incomplete_transcript",
+    );
+  });
+
+  test("Amp model attestation fails closed through the shared decoder", () => {
+    expect(() => inspectAmpModelAttestation("{")).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+
+    const exportDocument = JSON.parse(
+      fixtureText("amp/orb-thread-export", "input.json"),
+    );
+    exportDocument.id = "   ";
+    expect(() => inspectAmpModelAttestation(JSON.stringify(exportDocument))).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+
+    exportDocument.id = "T-sanitized-orb-thread";
+    exportDocument.messages[1].usage.model = "   ";
+    const result = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+    expect(result.attestedMessageCount).toBe(1);
+    expect(result.servedModels).toEqual(["example/model"]);
+  });
+
+  test("interprets one complete Amp execution stream", () => {
+    const stream = [
+      { type: "system", subtype: "init", session_id: "T-11111111-1111-4111-8111-111111111111" },
+      {
+        type: "assistant",
+        session_id: "T-11111111-1111-4111-8111-111111111111",
+        message: { content: [{ type: "text", text: "working" }, { type: "tool_use", id: "1" }] },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "T-11111111-1111-4111-8111-111111111111",
+        usage: {
+          input_tokens: 7,
+          cache_creation_input_tokens: 3,
+          cache_read_input_tokens: 11,
+          output_tokens: 5,
+        },
+      },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(inspectAmpExecutionStream(stream)).toEqual({
+      threadId: "T-11111111-1111-4111-8111-111111111111",
+      successful: true,
+      tokenCount: 26,
+      toolCallCount: 1,
+    });
+  });
+
+  test("rejects malformed identities inside an otherwise complete Amp execution stream", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    for (const invalidSessionId of ["", "   ", 42, null]) {
+      const stream = [
+        { type: "system", subtype: "init", session_id: threadId },
+        { type: "assistant", session_id: invalidSessionId },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: threadId,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n");
+
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("requires identities on Amp init, assistant, and result records", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const records = [
+      { type: "system", subtype: "init", session_id: threadId },
+      { type: "assistant", session_id: threadId, message: { content: [] } },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+    ];
+
+    for (const missingIdentityIndex of [0, 1, 2]) {
+      const malformed: Record<string, unknown>[] = structuredClone(records);
+      delete malformed[missingIdentityIndex]!["session_id"];
+      const stream = malformed.map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        "invalid thread identity",
+      );
+    }
+  });
+
+  test("rejects malformed Amp assistant content instead of undercounting tools", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    for (const message of [undefined, null, [], {}, { content: null }, { content: {} }]) {
+      const stream = [
+        { type: "system", subtype: "init", session_id: threadId },
+        { type: "assistant", session_id: threadId, message },
+        {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          session_id: threadId,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n");
+
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        "invalid assistant content",
+      );
+    }
+  });
+
+  test("rejects records after the Amp terminal result", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const stream = [
+      { type: "system", subtype: "init", session_id: threadId },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: { input_tokens: 0, output_tokens: 0 },
+      },
+      { type: "assistant", session_id: threadId },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(() => inspectAmpExecutionStream(stream)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+  });
+
+  test("requires exactly one initial Amp system init record", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const result = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: threadId,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    };
+    const init = { type: "system", subtype: "init", session_id: threadId };
+
+    for (const records of [[result], [init, init, result]]) {
+      const stream = records.map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("recovers only an unambiguous Amp execution identity for cleanup", () => {
+    const threadId = "T-11111111-1111-7111-8111-111111111111";
+    const stream = [
+      JSON.stringify({ type: "system", session_id: threadId }),
+      "{malformed",
+      JSON.stringify({ type: "assistant", session_id: threadId }),
+    ].join("\n");
+
+    expect(inspectAmpExecutionIdentity(stream)).toEqual({ threadId });
+    expect(
+      inspectAmpExecutionIdentity(
+        `${stream}\n${JSON.stringify({ session_id: "T-22222222-2222-7222-8222-222222222222" })}`,
+      ),
+    ).toEqual({ threadId: null });
+    expect(inspectAmpExecutionIdentity("{malformed\n")).toEqual({ threadId: null });
+    expect(
+      inspectAmpExecutionIdentity(JSON.stringify({ session_id: "   " })),
+    ).toEqual({ threadId: null });
+  });
+
+  test("Amp execution stream interpretation fails closed", () => {
+    expect(() => inspectAmpExecutionStream("{\n")).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+    expect(() =>
+      inspectAmpExecutionStream(JSON.stringify({ type: "result", subtype: "success", is_error: false })),
+    ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+  });
+
+  test("requires complete Amp terminal status and token usage", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    const terminal = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      session_id: threadId,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    };
+    const malformed = [
+      { ...terminal, subtype: undefined },
+      { ...terminal, subtype: "   " },
+      { ...terminal, is_error: undefined },
+      { ...terminal, usage: undefined },
+      { ...terminal, usage: [] },
+      { ...terminal, usage: { output_tokens: 0 } },
+      { ...terminal, usage: { input_tokens: 0 } },
+    ];
+
+    for (const result of malformed) {
+      const stream = [init, result].map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("rejects an unsafe Amp terminal token total", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const stream = [
+      { type: "system", subtype: "init", session_id: threadId },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: threadId,
+        usage: {
+          input_tokens: Number.MAX_SAFE_INTEGER,
+          output_tokens: 1,
+        },
+      },
+    ].map((record) => JSON.stringify(record)).join("\n");
+
+    expect(() => inspectAmpExecutionStream(stream)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
     );
   });
 

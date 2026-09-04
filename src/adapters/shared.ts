@@ -57,7 +57,9 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function nonemptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 export function parseTimestamp(value: unknown): Date | undefined {

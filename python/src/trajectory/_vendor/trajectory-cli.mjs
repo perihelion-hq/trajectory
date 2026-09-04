@@ -56,7 +56,7 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function nonemptyString(value) {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 function parseTimestamp(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime()))
@@ -267,6 +267,7 @@ var ampAdapter = {
     }
     const diagnostics = [];
     const events = [];
+    const assistantModelObservations = [];
     const messageIds = new Set;
     const protocolMessageIds = new Set;
     const toolCallCounts = new Map;
@@ -388,6 +389,10 @@ var ampAdapter = {
       }
       const fallbackTimestamp = parseTimestamp(isObject(message.usage) ? message.usage.timestamp : undefined);
       const model = nonemptyString(isObject(message.usage) ? message.usage.model : undefined);
+      assistantModelObservations.push({
+        sourceRecordId,
+        ...model ? { model } : {}
+      });
       for (let componentIndex = 0;componentIndex < message.content.length; componentIndex += 1) {
         const block = message.content[componentIndex];
         if (!isObject(block)) {
@@ -486,7 +491,8 @@ var ampAdapter = {
         ...gitBranch ? { gitBranch } : {},
         ...createdAt ? { createdAt } : {}
       },
-      diagnostics
+      diagnostics,
+      assistantModelObservations
     };
   }
 };

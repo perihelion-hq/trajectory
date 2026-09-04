@@ -130,6 +130,16 @@ do {
 } while (cursor);
 ```
 
+## Inspecting Amp executions
+
+For Amp served-model verification, `inspectAmpModelAttestation(transcript)` reuses the same Amp
+decoder and reports the root thread identity, complete per-assistant-message observation counts,
+unique models, diagnostics, and transcript completeness without requiring callers to parse the
+vendor export.
+`inspectAmpExecutionStream(stream)` interprets one complete native `--stream-json` execution.
+`inspectAmpExecutionIdentity(stream)` recovers only a single unambiguous thread identity from a
+possibly incomplete native execution stream so the process owner can clean up work it just created.
+
 ## Normalized records
 
 A trajectory is an ordered array containing:

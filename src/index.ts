@@ -24,6 +24,9 @@ import {
 } from "./core.js";
 import type { DecodedSession, SourceAdapter } from "./internal.js";
 import type {
+  AmpExecutionIdentity,
+  AmpExecutionStream,
+  AmpModelAttestation,
   CanonicalResult,
   NormalizeInput,
   NormalizeResult,
@@ -85,6 +88,199 @@ export function normalizeTranscript(input: NormalizeInput): NormalizeResult {
     partial: isPartialTranscript(input),
     filters,
   });
+}
+
+/**
+ * Inspect one complete Amp thread export for vendor-observed assistant models.
+ * The Amp adapter remains the sole owner of export parsing and completeness.
+ */
+export function inspectAmpModelAttestation(transcript: string): AmpModelAttestation {
+  const decoded = ampAdapter.decode(transcript);
+  const threadId = decoded.context.sourceGroupId;
+  if (!threadId) {
+    throw new NormalizationError("invalid_input", "Amp thread export must carry its root identity.");
+  }
+  const observations = decoded.assistantModelObservations ?? [];
+  const servedModels = [
+    ...new Set(
+      observations
+        .map((observation) => observation.model)
+        .filter((model): model is string => model !== undefined),
+    ),
+  ].sort();
+  return {
+    threadId,
+    assistantMessageCount: observations.length,
+    attestedMessageCount: observations.filter(
+      (observation) => observation.model !== undefined,
+    ).length,
+    servedModels,
+    complete: !decoded.diagnostics.some(
+      (diagnostic) => diagnostic.code === "incomplete_transcript",
+    ),
+    diagnostics: decoded.diagnostics,
+  };
+}
+
+/**
+ * Recover only an unambiguous Amp thread identity from a possibly incomplete
+ * --stream-json result so the process owner can clean up work it just created.
+ */
+export function inspectAmpExecutionIdentity(stream: string): AmpExecutionIdentity {
+  const threadIds = new Set<string>();
+  for (const line of stream.split(/\r?\n/u)) {
+    if (line.trim().length === 0) continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+    const threadId = (record as Record<string, unknown>).session_id;
+    if (typeof threadId === "string" && threadId.trim().length > 0) threadIds.add(threadId);
+  }
+  return { threadId: threadIds.size === 1 ? [...threadIds][0]! : null };
+}
+
+/**
+ * Interpret one complete Amp --stream-json execution without making its
+ * Claude-compatible wire shape a downstream Roster contract.
+ */
+export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
+  const threadIds = new Set<string>();
+  let terminal: Record<string, unknown> | undefined;
+  let toolCallCount = 0;
+  const lines = stream.split(/\r?\n/u).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    throw new NormalizationError("invalid_input", "Amp execution stream is empty.");
+  }
+  for (let index = 0; index < lines.length; index += 1) {
+    let record: unknown;
+    try {
+      record = JSON.parse(lines[index]!);
+    } catch {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} is not valid JSON.`,
+      );
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} is not an object.`,
+      );
+    }
+    const item = record as Record<string, unknown>;
+    const requiresThreadId =
+      index === 0 || item.type === "assistant" || item.type === "result";
+    if (
+      (requiresThreadId || "session_id" in item) &&
+      (typeof item.session_id !== "string" || item.session_id.trim().length === 0)
+    ) {
+      throw new NormalizationError(
+        "invalid_input",
+        `Amp execution stream line ${index + 1} has an invalid thread identity.`,
+      );
+    }
+    if (typeof item.session_id === "string") {
+      threadIds.add(item.session_id);
+    }
+    if (
+      (index === 0 && (item.type !== "system" || item.subtype !== "init")) ||
+      (index > 0 && item.type === "system" && item.subtype === "init")
+    ) {
+      throw new NormalizationError(
+        "invalid_input",
+        "Amp execution stream must begin with exactly one system init record.",
+      );
+    }
+    if (item.type === "assistant") {
+      const message = item.message;
+      if (!message || typeof message !== "object" || Array.isArray(message)) {
+        throw new NormalizationError(
+          "invalid_input",
+          `Amp execution stream line ${index + 1} has invalid assistant content.`,
+        );
+      }
+      const content = (message as Record<string, unknown>).content;
+      if (!Array.isArray(content)) {
+        throw new NormalizationError(
+          "invalid_input",
+          `Amp execution stream line ${index + 1} has invalid assistant content.`,
+        );
+      }
+      toolCallCount += content.filter(
+        (block) =>
+          block !== null &&
+          typeof block === "object" &&
+          !Array.isArray(block) &&
+          (block as Record<string, unknown>).type === "tool_use",
+      ).length;
+    }
+    if (item.type === "result") {
+      if (index !== lines.length - 1) {
+        throw new NormalizationError(
+          "invalid_input",
+          "Amp execution stream terminal result must be the final record.",
+        );
+      }
+      terminal = item;
+    }
+  }
+  if (threadIds.size !== 1 || terminal === undefined) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution stream must contain one thread identity and one terminal result.",
+    );
+  }
+  if (
+    typeof terminal.subtype !== "string" ||
+    terminal.subtype.trim().length === 0 ||
+    typeof terminal.is_error !== "boolean" ||
+    !terminal.usage ||
+    typeof terminal.usage !== "object" ||
+    Array.isArray(terminal.usage)
+  ) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution terminal status or usage is invalid.",
+    );
+  }
+  const usage = terminal.usage as Record<string, unknown>;
+  const inputTokens = requiredTokenCount(usage, "input_tokens");
+  const cacheCreationInputTokens = optionalTokenCount(usage, "cache_creation_input_tokens");
+  const cacheReadInputTokens = optionalTokenCount(usage, "cache_read_input_tokens");
+  const outputTokens = requiredTokenCount(usage, "output_tokens");
+  const tokenCount =
+    inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens;
+  if (!Number.isSafeInteger(tokenCount)) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution terminal token total is invalid.",
+    );
+  }
+  return {
+    threadId: [...threadIds][0]!,
+    successful: terminal.is_error === false && terminal.subtype === "success",
+    tokenCount,
+    toolCallCount,
+  };
+}
+
+function requiredTokenCount(usage: Record<string, unknown>, member: string): number {
+  const count = usage[member];
+  if (!Number.isSafeInteger(count) || (count as number) < 0) {
+    throw new NormalizationError(
+      "invalid_input",
+      `Amp execution terminal usage.${member} is invalid.`,
+    );
+  }
+  return count as number;
+}
+
+function optionalTokenCount(usage: Record<string, unknown>, member: string): number {
+  return usage[member] === undefined ? 0 : requiredTokenCount(usage, member);
 }
 
 /**
@@ -201,6 +397,9 @@ export { DEFAULT_NORMALIZATION_FILTERS } from "./filters.js";
 export { validateTranscript } from "./validate.js";
 export {
   NormalizationError,
+  type AmpExecutionIdentity,
+  type AmpExecutionStream,
+  type AmpModelAttestation,
   type AssistantMessageRecord,
   type AssistantToolCallRecord,
   type AnyTrajectorySource,

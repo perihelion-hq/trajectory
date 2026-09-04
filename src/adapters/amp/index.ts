@@ -1,4 +1,5 @@
 import type {
+  DecodedAssistantModelObservation,
   DecodedEvent,
   DecodedSession,
   SourceAdapter,
@@ -30,6 +31,7 @@ export const ampAdapter: SourceAdapter = {
 
     const diagnostics: Diagnostic[] = [];
     const events: DecodedEvent[] = [];
+    const assistantModelObservations: DecodedAssistantModelObservation[] = [];
     const messageIds = new Set<number>();
     const protocolMessageIds = new Set<string>();
     const toolCallCounts = new Map<string, number>();
@@ -171,6 +173,10 @@ export const ampAdapter: SourceAdapter = {
         isObject(message.usage) ? message.usage.timestamp : undefined,
       );
       const model = nonemptyString(isObject(message.usage) ? message.usage.model : undefined);
+      assistantModelObservations.push({
+        sourceRecordId,
+        ...(model ? { model } : {}),
+      });
 
       for (let componentIndex = 0; componentIndex < message.content.length; componentIndex += 1) {
         const block = message.content[componentIndex];
@@ -285,6 +291,7 @@ export const ampAdapter: SourceAdapter = {
         ...(createdAt ? { createdAt } : {}),
       },
       diagnostics,
+      assistantModelObservations,
     };
   },
 };

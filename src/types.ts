@@ -198,6 +198,40 @@ export interface NormalizeResult {
   diagnostics: Diagnostic[];
 }
 
+/** Complete Amp-vendor model observations for one whole-thread export. */
+export interface AmpModelAttestation {
+  /** The native thread identifier at the root of the inspected export. */
+  threadId: string;
+  /** Number of source assistant messages, independent of their content-block count. */
+  assistantMessageCount: number;
+  /** Number of assistant messages carrying a non-empty vendor model observation. */
+  attestedMessageCount: number;
+  /** Sorted unique non-empty model identifiers observed on assistant messages. */
+  servedModels: string[];
+  /** False when the Amp adapter observes any incomplete-transcript condition. */
+  complete: boolean;
+  /** The Amp adapter's complete diagnostic set for the export. */
+  diagnostics: Diagnostic[];
+}
+
+/** Typed identity and activity readback from one complete Amp --stream-json invocation. */
+export interface AmpExecutionStream {
+  /** The one native thread identifier carried by every applicable stream record. */
+  threadId: string;
+  /** True only when exactly one terminal result record reports success. */
+  successful: boolean;
+  /** Total input, cache-input, and output tokens reported by the terminal result. */
+  tokenCount: number;
+  /** Number of assistant tool-use blocks observed in the stream. */
+  toolCallCount: number;
+}
+
+/** Best-effort native identity recovered for cleanup from an Amp execution stream. */
+export interface AmpExecutionIdentity {
+  /** The sole non-empty native identity observed, or null when ownership is ambiguous. */
+  threadId: string | null;
+}
+
 /**
  * Canonical record type, reusing the trajectory-v1 role vocabulary rather than
  * introducing a second taxonomy. `assistant-tool-call` is an assistant record
