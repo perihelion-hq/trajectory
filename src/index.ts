@@ -151,6 +151,11 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
   const threadIds = new Set<string>();
   let terminal: Record<string, unknown> | undefined;
   let toolCallCount = 0;
+  // Per-call usage, used only when the terminal result omits its own. `usage` is optional on
+  // both records in Amp's stream-json schema, and current releases omit it from the result.
+  let assistantCount = 0;
+  let assistantTokens = 0;
+  let assistantUsageComplete = true;
   const lines = stream.split(/\r?\n/u).filter((line) => line.trim().length > 0);
   if (lines.length === 0) {
     throw new NormalizationError("invalid_input", "Amp execution stream is empty.");
@@ -217,6 +222,24 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
           !Array.isArray(block) &&
           (block as Record<string, unknown>).type === "tool_use",
       ).length;
+      assistantCount += 1;
+      if ("usage" in (message as Record<string, unknown>)) {
+        assistantTokens += usageTokenCount((message as Record<string, unknown>).usage, "assistant");
+        // Refuse an unsafe sum whether or not it becomes the result: present usage is validated
+        // even when the terminal's own usage or a missing call makes the sum unused.
+        if (!Number.isSafeInteger(assistantTokens)) {
+          throw new NormalizationError(
+            "invalid_input",
+            "Amp execution assistant token total is invalid.",
+          );
+        }
+      } else {
+        assistantUsageComplete = false;
+      }
+      // Nested (subagent) calls may or may not be counted by their parent; no capture shows which.
+      if (item.parent_tool_use_id !== null && item.parent_tool_use_id !== undefined) {
+        assistantUsageComplete = false;
+      }
     }
     if (item.type === "result") {
       if (index !== lines.length - 1) {
@@ -237,28 +260,18 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
   if (
     typeof terminal.subtype !== "string" ||
     terminal.subtype.trim().length === 0 ||
-    typeof terminal.is_error !== "boolean" ||
-    !terminal.usage ||
-    typeof terminal.usage !== "object" ||
-    Array.isArray(terminal.usage)
+    typeof terminal.is_error !== "boolean"
   ) {
     throw new NormalizationError(
       "invalid_input",
       "Amp execution terminal status or usage is invalid.",
     );
   }
-  const usage = terminal.usage as Record<string, unknown>;
-  const inputTokens = requiredTokenCount(usage, "input_tokens");
-  const cacheCreationInputTokens = optionalTokenCount(usage, "cache_creation_input_tokens");
-  const cacheReadInputTokens = optionalTokenCount(usage, "cache_read_input_tokens");
-  const outputTokens = requiredTokenCount(usage, "output_tokens");
-  const tokenCount =
-    inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens;
-  if (!Number.isSafeInteger(tokenCount)) {
-    throw new NormalizationError(
-      "invalid_input",
-      "Amp execution terminal token total is invalid.",
-    );
+  let tokenCount: number | null = null;
+  if ("usage" in terminal) {
+    tokenCount = usageTokenCount(terminal.usage, "terminal");
+  } else if (assistantCount > 0 && assistantUsageComplete) {
+    tokenCount = assistantTokens;
   }
   return {
     threadId: [...threadIds][0]!,
@@ -268,19 +281,50 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
   };
 }
 
-function requiredTokenCount(usage: Record<string, unknown>, member: string): number {
+/** Input, cache-input, and output tokens of one present usage object; malformed usage throws. */
+function usageTokenCount(value: unknown, owner: "terminal" | "assistant"): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new NormalizationError(
+      "invalid_input",
+      `Amp execution ${owner} usage is invalid.`,
+    );
+  }
+  const usage = value as Record<string, unknown>;
+  const total =
+    requiredTokenCount(usage, "input_tokens", owner) +
+    optionalTokenCount(usage, "cache_creation_input_tokens", owner) +
+    optionalTokenCount(usage, "cache_read_input_tokens", owner) +
+    requiredTokenCount(usage, "output_tokens", owner);
+  if (!Number.isSafeInteger(total)) {
+    throw new NormalizationError(
+      "invalid_input",
+      `Amp execution ${owner} token total is invalid.`,
+    );
+  }
+  return total;
+}
+
+function requiredTokenCount(
+  usage: Record<string, unknown>,
+  member: string,
+  owner: "terminal" | "assistant",
+): number {
   const count = usage[member];
   if (!Number.isSafeInteger(count) || (count as number) < 0) {
     throw new NormalizationError(
       "invalid_input",
-      `Amp execution terminal usage.${member} is invalid.`,
+      `Amp execution ${owner} usage.${member} is invalid.`,
     );
   }
   return count as number;
 }
 
-function optionalTokenCount(usage: Record<string, unknown>, member: string): number {
-  return usage[member] === undefined ? 0 : requiredTokenCount(usage, member);
+function optionalTokenCount(
+  usage: Record<string, unknown>,
+  member: string,
+  owner: "terminal" | "assistant",
+): number {
+  return usage[member] === undefined ? 0 : requiredTokenCount(usage, member, owner);
 }
 
 /**
