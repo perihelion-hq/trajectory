@@ -137,6 +137,9 @@ decoder and reports the root thread identity, complete per-assistant-message obs
 unique models, diagnostics, and transcript completeness without requiring callers to parse the
 vendor export.
 `inspectAmpExecutionStream(stream)` interprets one complete native `--stream-json` execution.
+Its `tokenCount` is the terminal result's usage when present, otherwise the sum over every
+top-level assistant call when each reports usage, otherwise `null`: Amp's schema makes `usage`
+optional on both records, and current releases omit it from the result.
 `inspectAmpExecutionIdentity(stream)` recovers only a single unambiguous thread identity from a
 possibly incomplete native execution stream so the process owner can clean up work it just created.
 

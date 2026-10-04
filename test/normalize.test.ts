@@ -706,7 +706,7 @@ describe("public API", () => {
       { ...terminal, subtype: undefined },
       { ...terminal, subtype: "   " },
       { ...terminal, is_error: undefined },
-      { ...terminal, usage: undefined },
+      { ...terminal, usage: null },
       { ...terminal, usage: [] },
       { ...terminal, usage: { output_tokens: 0 } },
       { ...terminal, usage: { input_tokens: 0 } },
@@ -714,6 +714,90 @@ describe("public API", () => {
 
     for (const result of malformed) {
       const stream = [init, result].map((record) => JSON.stringify(record)).join("\n");
+      expect(() => inspectAmpExecutionStream(stream)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("reads real Amp streams whose terminal result has no usage", () => {
+    // Unedited captures (fixtures/amp/stream-json/README.md): usage only on assistant records.
+    for (const [model, threadId, tokenCount] of [
+      ["claude-sonnet-5", "T-01a1073f-37db-75bb-9414-478a3bc3d030", 2 + 10337 + 87 + 2 + 116 + 10337 + 16],
+      ["qwen3.8-max", "T-01a1073e-bf20-73c8-9364-bb1261774274", 6904 + 110 + 218 + 6903 + 67],
+    ] as const) {
+      const stream = readFileSync(
+        fileURLToPath(new URL(`../fixtures/amp/stream-json/${model}.jsonl`, import.meta.url)),
+        "utf8",
+      );
+      expect(inspectAmpExecutionStream(stream)).toEqual({
+        threadId,
+        successful: true,
+        tokenCount,
+        toolCallCount: 1,
+      });
+    }
+  });
+
+  test("reports unobserved Amp usage as null, never as zero", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    const result = { type: "result", subtype: "success", is_error: false, session_id: threadId };
+    const assistant = (usage?: unknown, parent: string | null = null) => ({
+      type: "assistant",
+      session_id: threadId,
+      parent_tool_use_id: parent,
+      message: { content: [], ...(usage === undefined ? {} : { usage }) },
+    });
+    const measured = { input_tokens: 1, output_tokens: 2 };
+    for (const records of [
+      // No assistant call at all: nothing was measured.
+      [init, result],
+      // One call without usage: a partial sum would undercount.
+      [init, assistant(measured), assistant(), result],
+      // A nested call may or may not already be counted by its parent.
+      [init, assistant(measured), assistant(measured, "toolu_1"), result],
+    ]) {
+      const stream = records.map((record) => JSON.stringify(record)).join("\n");
+      expect(inspectAmpExecutionStream(stream).tokenCount).toBeNull();
+    }
+    // A measured zero stays zero.
+    const zero = [init, assistant({ input_tokens: 0, output_tokens: 0 }), result];
+    expect(
+      inspectAmpExecutionStream(zero.map((record) => JSON.stringify(record)).join("\n"))
+        .tokenCount,
+    ).toBe(0);
+    // A terminal usage is used as reported, not added to the per-call usage.
+    const terminal = [init, assistant(measured), { ...result, usage: { input_tokens: 5, output_tokens: 7 } }];
+    expect(
+      inspectAmpExecutionStream(terminal.map((record) => JSON.stringify(record)).join("\n"))
+        .tokenCount,
+    ).toBe(12);
+  });
+
+  test("rejects malformed or unsafe Amp assistant usage even when another call lacks usage", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    const result = { type: "result", subtype: "success", is_error: false, session_id: threadId };
+    const assistant = (message: Record<string, unknown>) => ({
+      type: "assistant",
+      session_id: threadId,
+      parent_tool_use_id: null,
+      message: { content: [], ...message },
+    });
+    for (const records of [
+      [init, assistant({}), assistant({ usage: null }), result],
+      [init, assistant({}), assistant({ usage: { input_tokens: -1, output_tokens: 0 } }), result],
+      [init, assistant({ usage: { output_tokens: 3 } }), result],
+      // Each call is safe; their sum is not.
+      [
+        init,
+        assistant({ usage: { input_tokens: Number.MAX_SAFE_INTEGER - 1, output_tokens: 0 } }),
+        assistant({ usage: { input_tokens: 2, output_tokens: 0 } }),
+        result,
+      ],
+    ]) {
+      const stream = records.map((record) => JSON.stringify(record)).join("\n");
       expect(() => inspectAmpExecutionStream(stream)).toThrow(
         expect.objectContaining({ code: "invalid_input" }),
       );
