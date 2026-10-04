@@ -225,6 +225,14 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
       assistantCount += 1;
       if ("usage" in (message as Record<string, unknown>)) {
         assistantTokens += usageTokenCount((message as Record<string, unknown>).usage, "assistant");
+        // Refuse an unsafe sum whether or not it becomes the result: present usage is validated
+        // even when the terminal's own usage or a missing call makes the sum unused.
+        if (!Number.isSafeInteger(assistantTokens)) {
+          throw new NormalizationError(
+            "invalid_input",
+            "Amp execution assistant token total is invalid.",
+          );
+        }
       } else {
         assistantUsageComplete = false;
       }
@@ -264,12 +272,6 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     tokenCount = usageTokenCount(terminal.usage, "terminal");
   } else if (assistantCount > 0 && assistantUsageComplete) {
     tokenCount = assistantTokens;
-  }
-  if (tokenCount !== null && !Number.isSafeInteger(tokenCount)) {
-    throw new NormalizationError(
-      "invalid_input",
-      "Amp execution terminal token total is invalid.",
-    );
   }
   return {
     threadId: [...threadIds][0]!,

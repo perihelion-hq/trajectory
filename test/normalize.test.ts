@@ -796,6 +796,21 @@ describe("public API", () => {
         assistant({ usage: { input_tokens: 2, output_tokens: 0 } }),
         result,
       ],
+      // The same unsafe sum is refused when the terminal's own usage would be reported instead...
+      [
+        init,
+        assistant({ usage: { input_tokens: Number.MAX_SAFE_INTEGER - 1, output_tokens: 0 } }),
+        assistant({ usage: { input_tokens: 2, output_tokens: 0 } }),
+        { ...result, usage: { input_tokens: 1, output_tokens: 1 } },
+      ],
+      // ...and when a call without usage would make the result null.
+      [
+        init,
+        assistant({ usage: { input_tokens: Number.MAX_SAFE_INTEGER - 1, output_tokens: 0 } }),
+        assistant({ usage: { input_tokens: 2, output_tokens: 0 } }),
+        assistant({}),
+        result,
+      ],
     ]) {
       const stream = records.map((record) => JSON.stringify(record)).join("\n");
       expect(() => inspectAmpExecutionStream(stream)).toThrow(
