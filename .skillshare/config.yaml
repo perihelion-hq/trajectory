@@ -1,0 +1,14 @@
+target_naming: standard
+targets:
+  - name: codex
+    skills:
+      mode: copy
+      include:
+        - reporting-trajectory-readiness
+  - name: claude
+    skills:
+      mode: copy
+      include:
+        - reporting-trajectory-readiness
+audit:
+  block_threshold: CRITICAL
