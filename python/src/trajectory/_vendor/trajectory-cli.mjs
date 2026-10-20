@@ -62,8 +62,8 @@ function parseTimestamp(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime()))
     return value;
   if (typeof value === "number" && value > 100000000000) {
-    const date2 = new Date(value);
-    return Number.isNaN(date2.getTime()) ? undefined : date2;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
   }
   if (typeof value !== "string" || value.length === 0)
     return;
@@ -1188,6 +1188,198 @@ function invalidCursorTranscript() {
   return new NormalizationError("invalid_input", "Cursor transcript must be JSONL with role and message.content records.");
 }
 
+// src/adapters/devin/index.ts
+var ENVIRONMENT_FIELD = /^(env|envs|environment|env_vars|environment_variables)$/i;
+var USER_MESSAGE_TOOL = "message_user";
+var LIFECYCLE_EVENTS = new Set([
+  "SessionStart",
+  "SessionEnd",
+  "PermissionRequest"
+]);
+var devinAdapter = {
+  source: "devin",
+  decode(transcript) {
+    const diagnostics = [];
+    const events = [];
+    const sessionIds = new Set;
+    const emittedCalls = new Set;
+    const emittedResults = new Set;
+    const emittedMessages = new Set;
+    let recognized = 0;
+    for (const { value: row, line } of parseJsonLines(transcript, diagnostics)) {
+      const envelope = isObject(row.hook);
+      const hook = envelope ? row.hook : row;
+      const eventName = nonemptyString(hook.hook_event_name);
+      if (!eventName) {
+        diagnostics.push(noise(`Skipped a row without a hook event on line ${line}.`, line));
+        continue;
+      }
+      recognized += 1;
+      const sessionId = nonemptyString(hook.session_id);
+      if (sessionId)
+        sessionIds.add(sessionId);
+      const timestamp = envelope ? parseTimestamp(row.received_at) : undefined;
+      const base = {
+        ...timestamp ? { timestamp } : {},
+        sourceSequence: line - 1,
+        inputLine: line
+      };
+      if (LIFECYCLE_EVENTS.has(eventName))
+        continue;
+      if (eventName === "UserPromptSubmit") {
+        const promptId = nonemptyString(hook.prompt_id);
+        const content = typeof hook.prompt === "string" ? hook.prompt : "";
+        events.push({
+          type: "message",
+          role: "user",
+          content,
+          ...base,
+          ...promptId ? { sourceRecordId: `prompt:${promptId}` } : anchor(line),
+          componentIndex: 0
+        });
+        continue;
+      }
+      if (eventName === "Stop") {
+        const content = nonemptyString(hook.last_assistant_message);
+        const promptId = nonemptyString(hook.prompt_id);
+        if (content) {
+          events.push({
+            type: "message",
+            role: "assistant",
+            content,
+            ...base,
+            ...promptId ? { sourceRecordId: `stop:${promptId}` } : anchor(line),
+            componentIndex: 0
+          });
+        }
+        continue;
+      }
+      if (eventName === "PostCompaction") {
+        const summary = nonemptyString(hook.summary);
+        if (summary) {
+          events.push({
+            type: "observation",
+            content: summary,
+            ...base,
+            ...anchor(line),
+            componentIndex: 0
+          });
+        }
+        continue;
+      }
+      if (eventName !== "PreToolUse" && eventName !== "PostToolUse") {
+        diagnostics.push(noise(`Skipped unsupported Devin hook ${JSON.stringify(eventName)} on line ${line}.`, line));
+        continue;
+      }
+      const toolName = nonemptyString(hook.tool_name);
+      const nativeCallId = nonemptyString(hook.tool_use_id);
+      const callId = nativeCallId ?? `devin_line_${line}`;
+      if (!nativeCallId && toolName !== USER_MESSAGE_TOOL) {
+        diagnostics.push({
+          code: "tool_call_id_synthesized",
+          message: `Synthesized tool-call ID ${JSON.stringify(callId)} on line ${line}.`,
+          inputLine: line
+        });
+      }
+      const input = withoutEnvironment(hook.tool_input);
+      if (toolName === USER_MESSAGE_TOOL) {
+        const key = callId;
+        const content = isObject(input) && typeof input.message === "string" ? input.message : "";
+        if (!emittedMessages.has(key) && content) {
+          emittedMessages.add(key);
+          events.push({
+            type: "message",
+            role: "assistant",
+            content,
+            ...base,
+            ...nativeCallId ? { sourceRecordId: nativeCallId } : anchor(line),
+            componentIndex: 0
+          });
+        }
+        continue;
+      }
+      if (!emittedCalls.has(callId)) {
+        emittedCalls.add(callId);
+        events.push({
+          type: "tool_call",
+          args: jsonString(input),
+          id: callId,
+          ...toolName ? { name: toolName } : {},
+          ...base,
+          ...nativeCallId ? { sourceRecordId: nativeCallId } : anchor(line),
+          componentIndex: 0
+        });
+      }
+      if (eventName === "PostToolUse") {
+        if (emittedResults.has(callId)) {
+          diagnostics.push({
+            code: "duplicate_tool_result",
+            message: `Dropped a repeated Devin tool result on line ${line}.`,
+            inputLine: line
+          });
+          continue;
+        }
+        emittedResults.add(callId);
+        const response = withoutEnvironment(hook.tool_response);
+        events.push({
+          type: "tool_result",
+          content: resultContent2(response),
+          callId,
+          ...isObject(response) && typeof response.success === "boolean" ? { ok: response.success } : {},
+          ...base,
+          ...nativeCallId ? { sourceRecordId: `${nativeCallId}:result` } : anchor(line),
+          componentIndex: 1
+        });
+      }
+    }
+    if (recognized === 0) {
+      throw new NormalizationError("invalid_input", "Devin transcript must be JSONL of hook payloads with hook_event_name.");
+    }
+    const sourceGroupId = sessionIds.size === 1 ? [...sessionIds][0] : undefined;
+    return {
+      events,
+      context: {
+        source: "devin",
+        ...sourceGroupId ? { sourceGroupId } : {},
+        ...sessionIds.size > 1 ? { sourceGroupAmbiguous: true } : {},
+        ...sessionIds.size === 0 ? { sourceGroupRequired: true } : {}
+      },
+      diagnostics
+    };
+  }
+};
+function anchor(line) {
+  return { sourceOffset: line - 1, sourceAnchorKind: "ordinal" };
+}
+function noise(message, line) {
+  return { code: "noise_record_dropped", message, inputLine: line };
+}
+function withoutEnvironment(value) {
+  if (Array.isArray(value))
+    return value.map(withoutEnvironment);
+  if (!isObject(value))
+    return value;
+  const copy = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (ENVIRONMENT_FIELD.test(key))
+      continue;
+    copy[key] = withoutEnvironment(item);
+  }
+  return copy;
+}
+function resultContent2(response) {
+  if (typeof response === "string")
+    return response;
+  if (!isObject(response))
+    return response === undefined ? "" : jsonString(response);
+  const output = typeof response.output === "string" ? response.output : "";
+  const error = typeof response.error === "string" ? response.error : "";
+  if (output && error)
+    return `${output}
+${error}`;
+  return output || error;
+}
+
 // src/adapters/droid/index.ts
 var TRANSPORT_TYPES2 = new Set([
   "todo_state",
@@ -1327,12 +1519,12 @@ var geminiCliAdapter = {
       }
       if (Array.isArray(message.thoughts)) {
         for (const thought of message.thoughts) {
-          const content2 = thoughtContent(thought);
-          if (!content2.trim())
+          const content = thoughtContent(thought);
+          if (!content.trim())
             continue;
           emit({
             type: "reasoning",
-            content: content2,
+            content,
             ...timestamp ? { timestamp } : {},
             ...model ? { model } : {}
           });
@@ -2011,10 +2203,10 @@ var openHandsAdapter = {
             ...timestamp ? { timestamp } : {}
           });
         }
-        const callId2 = callIdByActionId.get(event.id) ?? actionCallId(event);
+        const callId = callIdByActionId.get(event.id) ?? actionCallId(event);
         emit({
           type: "tool_call",
-          id: callId2,
+          id: callId,
           args: actionArgsText(event),
           ...typeof event.tool_name === "string" && event.tool_name ? { name: event.tool_name } : {},
           ...timestamp ? { timestamp } : {}
@@ -2301,17 +2493,17 @@ function resolveBounds(bounds) {
     return copyDefaults();
   assertObject(bounds, "bounds");
   assertKnownKeys(bounds, ["toolArguments", "toolResults"], "bounds");
-  const toolArguments2 = bounds.toolArguments;
-  if (toolArguments2 !== undefined) {
-    assertObject(toolArguments2, "bounds.toolArguments");
-    assertKnownKeys(toolArguments2, ["maxCharacters"], "bounds.toolArguments");
+  const toolArguments = bounds.toolArguments;
+  if (toolArguments !== undefined) {
+    assertObject(toolArguments, "bounds.toolArguments");
+    assertKnownKeys(toolArguments, ["maxCharacters"], "bounds.toolArguments");
   }
   const toolResults = bounds.toolResults;
   if (toolResults !== undefined) {
     assertObject(toolResults, "bounds.toolResults");
     assertKnownKeys(toolResults, ["maxCharacters", "strategy"], "bounds.toolResults");
   }
-  const argumentLimit = resolveLimit(toolArguments2?.maxCharacters, DEFAULT_NORMALIZATION_BOUNDS.toolArguments.maxCharacters, "bounds.toolArguments.maxCharacters");
+  const argumentLimit = resolveLimit(toolArguments?.maxCharacters, DEFAULT_NORMALIZATION_BOUNDS.toolArguments.maxCharacters, "bounds.toolArguments.maxCharacters");
   if (argumentLimit !== null && argumentLimit < 2) {
     throw invalidBounds("bounds.toolArguments.maxCharacters must be at least 2 so arguments can remain a JSON object.");
   }
@@ -2697,11 +2889,11 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (event.role === "system") {
       if (filters.systemMessages === "omit")
         return;
-      const record3 = {
+      const record = {
         role: "system",
         content: event.content
       };
-      return record3;
+      return record;
     }
     if (event.role === "user" && NOISE_PREFIXES.some((prefix) => event.content.trimStart().startsWith(prefix))) {
       diagnostics.push({
@@ -2713,45 +2905,45 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
       return;
     }
     if (event.role === "user") {
-      const record3 = {
+      const record = {
         role: "user",
         content: event.content
       };
-      return record3;
+      return record;
     }
-    const record2 = {
+    const record = {
       role: "assistant",
       content: event.content
     };
-    return record2;
+    return record;
   }
   if (event.type === "reasoning") {
     if (!event.content.trim()) {
       return;
     }
-    const record2 = {
+    const record = {
       role: "reasoning",
       content: event.content
     };
-    return record2;
+    return record;
   }
   if (event.type === "observation") {
     if (!event.content.trim())
       return;
-    const record2 = {
+    const record = {
       role: "observation",
       content: event.content
     };
-    return record2;
+    return record;
   }
   if (event.type === "tool_call") {
     const entry = plan.calls.get(eventIndex);
-    const sourceId2 = entry?.sourceId ?? (event.id || `call_${eventIndex + 1}`);
-    const finalId2 = entry?.finalId ?? sourceId2;
+    const sourceId = entry?.sourceId ?? (event.id || `call_${eventIndex + 1}`);
+    const finalId = entry?.finalId ?? sourceId;
     if (entry?.synthesized ?? !event.id) {
       diagnostics.push({
         code: "tool_call_id_synthesized",
-        message: `Synthesized tool-call ID ${JSON.stringify(sourceId2)}.`,
+        message: `Synthesized tool-call ID ${JSON.stringify(sourceId)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -2759,7 +2951,7 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (entry?.renamed) {
       diagnostics.push({
         code: "duplicate_tool_call_id",
-        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
+        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId)} to ${JSON.stringify(finalId)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -2777,7 +2969,7 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (args.reshaped) {
       diagnostics.push({
         code: "tool_arguments_reshaped",
-        message: `Reshaped arguments for tool call ${JSON.stringify(finalId2)} into a JSON object.`,
+        message: `Reshaped arguments for tool call ${JSON.stringify(finalId)} into a JSON object.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -2785,17 +2977,17 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (args.truncated) {
       diagnostics.push({
         code: "tool_arguments_truncated",
-        message: `Truncated arguments for tool call ${JSON.stringify(finalId2)} to at most ${bounds.toolArguments.maxCharacters} Unicode code points.`,
+        message: `Truncated arguments for tool call ${JSON.stringify(finalId)} to at most ${bounds.toolArguments.maxCharacters} Unicode code points.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
     }
-    const record2 = {
+    const record = {
       role: "assistant",
       content: null,
-      tool_calls: [{ id: finalId2, name, args: args.args }]
+      tool_calls: [{ id: finalId, name, args: args.args }]
     };
-    return record2;
+    return record;
   }
   const sourceId = event.callId || "";
   const entries = plan.openCalls.get(sourceId);
@@ -3176,7 +3368,7 @@ async function loadDeepAgentsCheckpoint(checkpoint) {
     const stderr = [];
     let outputBytes = 0;
     let settled = false;
-    const fail2 = (error) => {
+    const fail = (error) => {
       if (settled)
         return;
       settled = true;
@@ -3184,16 +3376,16 @@ async function loadDeepAgentsCheckpoint(checkpoint) {
     };
     child.on("error", (error) => {
       if (error.code === "ENOENT") {
-        fail2(new NormalizationError("python_unavailable", `Could not execute Python interpreter ${JSON.stringify(python)}. ` + "Pass checkpoint.pythonExecutable or set PYTHON."));
+        fail(new NormalizationError("python_unavailable", `Could not execute Python interpreter ${JSON.stringify(python)}. ` + "Pass checkpoint.pythonExecutable or set PYTHON."));
         return;
       }
-      fail2(new NormalizationError("checkpoint_read_failed", `Could not start the Deep Agents checkpoint helper: ${error.message}`));
+      fail(new NormalizationError("checkpoint_read_failed", `Could not start the Deep Agents checkpoint helper: ${error.message}`));
     });
     child.stdout.on("data", (chunk) => {
       outputBytes += chunk.length;
       if (outputBytes > MAX_HELPER_OUTPUT_BYTES) {
         child.kill();
-        fail2(new NormalizationError("checkpoint_read_failed", "Deep Agents checkpoint helper output exceeded 64 MiB."));
+        fail(new NormalizationError("checkpoint_read_failed", "Deep Agents checkpoint helper output exceeded 64 MiB."));
         return;
       }
       stdout.push(chunk);
@@ -3822,7 +4014,7 @@ async function listTrajectories(input) {
   return paginate(items, input.cursor, limit);
 }
 function isKnownNormalizationOnlySource(source) {
-  return source === "atif" || source === "amp" || source === "copilot-cli" || source === "cursor" || source === "gemini-cli" || source === "opencode";
+  return source === "atif" || source === "amp" || source === "copilot-cli" || source === "cursor" || source === "devin" || source === "gemini-cli" || source === "opencode";
 }
 function resolveLimit2(limit) {
   if (limit === undefined)
@@ -3877,6 +4069,7 @@ var ADAPTERS = {
   codex: codexAdapter,
   "copilot-cli": copilotCliAdapter,
   cursor: cursorAdapter,
+  devin: devinAdapter,
   droid: droidAdapter,
   "gemini-cli": geminiCliAdapter,
   hermes: hermesAdapter,

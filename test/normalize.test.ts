@@ -28,6 +28,8 @@ const fixtures = [
   { source: "copilot-cli", name: "copilot-cli/cleanup" },
   { source: "cursor", name: "cursor/tool-calls" },
   { source: "cursor", name: "cursor/cleanup" },
+  { source: "devin", name: "devin/tool-calls" },
+  { source: "devin", name: "devin/cleanup" },
   { source: "droid", name: "droid/happy-path" },
   { source: "gemini-cli", name: "gemini-cli/tool-calls" },
   { source: "gemini-cli", name: "gemini-cli/cleanup" },
@@ -1604,6 +1606,75 @@ describe("public API", () => {
     expect(assistant?.timestamp).toBe("2026-07-01T12:00:01.000Z");
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: "timestamps_interpolated", count: 1 }),
+    );
+  });
+});
+
+describe("devin hook stream", () => {
+  const secret = "DEVIN_FIXTURE_SECRET_7f3a9c";
+  const transcript = fixtureText("devin/cleanup", "input.jsonl");
+
+  test("the fixture really carries a secret-bearing environment", () => {
+    expect(transcript).toContain(secret);
+  });
+
+  test("drops every environment field before any output", () => {
+    const trajectory = normalizeTranscript({ source: "devin", transcript });
+    const canonical = normalizeToCanonical({
+      source: "devin",
+      transcript,
+      sourceContext: { groupId: "5d1c7e0a-0000-4000-8000-00000000d001" },
+    });
+    for (const output of [trajectory, canonical]) {
+      const serialized = JSON.stringify(output);
+      expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain("API_TOKEN");
+      expect(serialized).not.toContain("CODEX_AUTH_JSON");
+    }
+    const call = trajectory.records.find(
+      (record) => record.role === "assistant" && record.content === null,
+    );
+    expect(call && "tool_calls" in call ? JSON.parse(call.tool_calls[0]!.args) : null).toEqual({
+      command: "pytest -q",
+      workdir: "/home/ubuntu/repos/example",
+    });
+  });
+
+  test("objectifies one PostToolUse alone with a stable identity", () => {
+    const line = transcript.split("\n")[3]!;
+    const groupId = "5d1c7e0a-0000-4000-8000-00000000d001";
+    // A capturing hook objectifies each payload as it arrives, as a partial fragment.
+    const alone = normalizeToCanonical({
+      source: "devin",
+      transcript: line,
+      sourceContext: { groupId, partial: true },
+    });
+    const whole = normalizeToCanonical({ source: "devin", transcript, sourceContext: { groupId } });
+    const ids = (records: typeof alone.records) =>
+      records.filter((record) => record.tool_call_id === "toolu_example_11").map((record) => record.record_id);
+    expect(ids(alone.records)).toHaveLength(2);
+    expect(ids(alone.records)).toEqual(ids(whole.records));
+    expect(JSON.stringify(alone)).not.toContain(secret);
+  });
+
+  test("takes the canonical group from the session id and rejects a conflicting one", () => {
+    const line = transcript.split("\n")[0]!;
+    expect(
+      normalizeToCanonical({ source: "devin", transcript: line, sourceContext: { partial: true } })
+        .records[0]?.source_group_id,
+    ).toBe("5d1c7e0a-0000-4000-8000-00000000d001");
+    expect(() =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: line,
+        sourceContext: { groupId: "other", partial: true },
+      }),
+    ).toThrow(expect.objectContaining({ code: "source_group_conflict" }));
+  });
+
+  test("rejects input with no hook payload", () => {
+    expect(() => normalizeTranscript({ source: "devin", transcript: '{"role":"user"}' })).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
     );
   });
 });

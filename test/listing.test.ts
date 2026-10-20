@@ -132,6 +132,7 @@ describe("listTrajectories", () => {
       "amp",
       "copilot-cli",
       "cursor",
+      "devin",
       "gemini-cli",
       "opencode",
     ] as const) {

@@ -1,0 +1,48 @@
+# devin
+
+The adapter accepts a stream of Devin command-hook payloads, one JSON object per
+line, in arrival order. Devin passes each payload to a command hook on stdin
+(`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`,
+`SessionEnd`, `PermissionRequest`, `PostCompaction`). Devin sessions expose no
+transcript file or export, so the capturing hook is the only native artifact.
+
+A line is either the bare stdin payload or an envelope that adds the arrival
+time, which Devin's payloads do not carry:
+
+```json
+{ "received_at": "2026-10-20T16:30:02.000Z", "hook": { "hook_event_name": "PreToolUse", "...": "..." } }
+```
+
+Decoding:
+
+- `UserPromptSubmit.prompt` becomes a user message, identified by `prompt_id`.
+- `PreToolUse` becomes a tool call identified by `tool_use_id`; the matching
+  `PostToolUse` becomes its result. `tool_response` is
+  `{ success, output, error }`: `output` (and `error`, when present) is the
+  result text and `success` is the source-native `ok`. A command that exits
+  non-zero still reports `success: true`; the exit code stays in the text.
+- A `PostToolUse` with no earlier `PreToolUse` for the same `tool_use_id` emits
+  the call from its own `tool_input`, so a single `PostToolUse` objectified on
+  its own yields the same call and result records as the whole stream.
+- `message_user` is the agent's visible reply. Its `tool_input.message` becomes
+  an assistant message; its `PostToolUse` is only the delivery receipt.
+- `Stop.last_assistant_message`, when non-empty, becomes an assistant message.
+  `PostCompaction.summary` becomes an observation.
+- `SessionStart`, `SessionEnd` and `PermissionRequest` carry no model input and
+  are skipped. Other hook names and rows without `hook_event_name` are
+  recoverable `noise_record_dropped` diagnostics.
+
+Environment fields are removed at decode, at every depth of `tool_input` and
+`tool_response`, before any argument or result is serialized: keys named `env`,
+`envs`, `environment`, `env_vars` or `environment_variables`, case-insensitive.
+Devin's `exec` tool input carries the session's secrets in `env`; no output of
+this library contains them.
+
+Every payload carries `session_id`, which is the canonical source group. Devin
+payloads carry no model identity. A payload without `tool_use_id` gets a
+line-local synthesized id (`tool_call_id_synthesized`). Listing is not supported:
+there is no local store to discover.
+
+Callers that objectify each payload as it arrives pass
+`sourceContext.partial: true`; identities come from `tool_use_id` and
+`prompt_id`, not from line position.

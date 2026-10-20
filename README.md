@@ -86,6 +86,7 @@ and is empty when the transcript required no recoverable cleanup.
 | [`codex`](src/adapters/codex/) | Native Codex rollout JSONL | `codex` |
 | [`copilot-cli`](src/adapters/copilot-cli/) | Native GitHub Copilot CLI event JSONL | `copilot-cli` |
 | [`cursor`](src/adapters/cursor/) | Cursor role/message content-block JSONL capture | `cursor` |
+| [`devin`](src/adapters/devin/) | Devin command-hook payload JSONL, captured by a hook | `devin` |
 | [`droid`](src/adapters/droid/) | Native Droid session JSONL | `droid` |
 | [`gemini-cli`](src/adapters/gemini-cli/) | Native Gemini CLI whole-session JSON | `gemini-cli` |
 | [`hermes`](src/adapters/hermes/) | Session-store message-row array or a `{ "session": {...}, "messages": [...] }` envelope | `hermes` |

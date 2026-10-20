@@ -1,0 +1,89 @@
+{
+  "records": [
+    {
+      "role": "meta",
+      "source": "devin"
+    },
+    {
+      "role": "user",
+      "content": "Run the tests.",
+      "timestamp": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "toolu_example_11",
+          "name": "exec",
+          "args": "{\"command\":\"pytest -q\",\"workdir\":\"/home/ubuntu/repos/example\"}"
+        }
+      ],
+      "timestamp": "2026-01-01T00:00:15.000Z"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "toolu_example_11",
+      "content": "1 failed",
+      "ok": false,
+      "timestamp": "2026-01-01T00:00:30.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "devin_line_6",
+          "name": "unknown_tool",
+          "args": "{\"command\":\"true\"}"
+        }
+      ],
+      "timestamp": "2026-01-01T00:00:45.000Z"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "devin_line_6",
+      "content": "",
+      "ok": true,
+      "timestamp": "2026-01-01T00:01:00.000Z"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "invalid_json_line",
+      "message": "Skipped invalid JSON on line 2.",
+      "inputLine": 2
+    },
+    {
+      "code": "duplicate_tool_result",
+      "message": "Dropped a repeated Devin tool result on line 5.",
+      "inputLine": 5
+    },
+    {
+      "code": "tool_call_id_synthesized",
+      "message": "Synthesized tool-call ID \"devin_line_6\" on line 6.",
+      "inputLine": 6
+    },
+    {
+      "code": "noise_record_dropped",
+      "message": "Skipped unsupported Devin hook \"FutureHook\" on line 7.",
+      "inputLine": 7
+    },
+    {
+      "code": "noise_record_dropped",
+      "message": "Skipped a row without a hook event on line 8.",
+      "inputLine": 8
+    },
+    {
+      "code": "unknown_tool_name",
+      "message": "Substituted \"unknown_tool\" for a missing tool name.",
+      "recordIndex": 4,
+      "inputLine": 6
+    },
+    {
+      "code": "timestamps_synthesized",
+      "message": "Synthesized timestamps for 5 normalized records.",
+      "count": 5
+    }
+  ]
+}

@@ -8,6 +8,7 @@ export type TrajectorySource =
   | "codex"
   | "copilot-cli"
   | "cursor"
+  | "devin"
   | "droid"
   | "gemini-cli"
   | "hermes"
