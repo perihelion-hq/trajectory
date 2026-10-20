@@ -1218,6 +1218,9 @@ var devinAdapter = {
       const sessionId = nonemptyString(hook.session_id);
       if (sessionId)
         sessionIds.add(sessionId);
+      if (sessionIds.size > 1) {
+        throw new NormalizationError("source_group_conflict", "Devin input must hold the hook payloads of one session.");
+      }
       const timestamp = envelope ? parseTimestamp(row.received_at) : undefined;
       const base = {
         ...timestamp ? { timestamp } : {},
@@ -1283,9 +1286,8 @@ var devinAdapter = {
         });
       }
       const input = withoutEnvironment(hook.tool_input);
-      const sessionKey = `${sessionId ?? ""}\x00${callId}`;
       if (toolName === USER_MESSAGE_TOOL) {
-        const key = sessionKey;
+        const key = callId;
         const content = isObject(input) && typeof input.message === "string" ? input.message : "";
         if (!emittedMessages.has(key) && content) {
           emittedMessages.add(key);
@@ -1300,8 +1302,8 @@ var devinAdapter = {
         }
         continue;
       }
-      if (!emittedCalls.has(sessionKey)) {
-        emittedCalls.add(sessionKey);
+      if (!emittedCalls.has(callId)) {
+        emittedCalls.add(callId);
         events.push({
           type: "tool_call",
           args: jsonString(input),
@@ -1313,7 +1315,7 @@ var devinAdapter = {
         });
       }
       if (eventName === "PostToolUse") {
-        if (emittedResults.has(sessionKey)) {
+        if (emittedResults.has(callId)) {
           diagnostics.push({
             code: "duplicate_tool_result",
             message: `Dropped a repeated Devin tool result on line ${line}.`,
@@ -1321,7 +1323,7 @@ var devinAdapter = {
           });
           continue;
         }
-        emittedResults.add(sessionKey);
+        emittedResults.add(callId);
         const response = withoutEnvironment(hook.tool_response);
         const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
@@ -1344,7 +1346,6 @@ var devinAdapter = {
       context: {
         source: "devin",
         ...sourceGroupId ? { sourceGroupId } : {},
-        ...sessionIds.size > 1 ? { sourceGroupAmbiguous: true } : {},
         ...sessionIds.size === 0 ? { sourceGroupRequired: true } : {}
       },
       diagnostics
@@ -1366,7 +1367,12 @@ function withoutEnvironment(value) {
   for (const [key, item] of Object.entries(value)) {
     if (ENVIRONMENT_FIELD.test(key))
       continue;
-    copy[key] = withoutEnvironment(item);
+    Object.defineProperty(copy, key, {
+      value: withoutEnvironment(item),
+      enumerable: true,
+      writable: true,
+      configurable: true
+    });
   }
   return copy;
 }

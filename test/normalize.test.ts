@@ -1697,7 +1697,7 @@ describe("devin hook stream", () => {
     expect(other?.tool_result_json).toContain("Exit code: 2");
   });
 
-  test("keeps two compactions objectified alone distinct, and scopes call ids to a session", () => {
+  test("keeps compactions objectified alone distinct, refuses mixed sessions, keeps __proto__ keys", () => {
     const groupId = "5d1c7e0a-0000-4000-8000-00000000d001";
     const compaction = (receivedAt: string, summary: string) =>
       normalizeToCanonical({
@@ -1725,12 +1725,29 @@ describe("devin hook stream", () => {
         tool_response: { success: true, output: "ok", error: null },
         session_id: sessionId,
       });
-    const mixed = normalizeTranscript({
+    // Native ids are unique only within a session, so a mixed input is refused, not merged.
+    expect(() =>
+      normalizeTranscript({
+        source: "devin",
+        transcript: `${call("a")}\n${call("b")}`,
+        sourceContext: { partial: true },
+      }),
+    ).toThrow(expect.objectContaining({ code: "source_group_conflict" }));
+    const proto = normalizeTranscript({
       source: "devin",
-      transcript: `${call("a")}\n${call("b")}`,
+      transcript: JSON.stringify({
+        hook_event_name: "PostToolUse",
+        tool_name: "read",
+        tool_use_id: "toolu_proto",
+        tool_input: JSON.parse('{"__proto__": {"path": "kept"}}'),
+        tool_response: JSON.parse('{"__proto__": {"output": "fabricated", "success": false}}'),
+        session_id: "a",
+      }),
       sourceContext: { partial: true },
     });
-    expect(mixed.records.filter((record) => record.role === "tool")).toHaveLength(2);
+    const protoCall = proto.records.find((record) => "tool_calls" in record);
+    expect(protoCall && "tool_calls" in protoCall ? protoCall.tool_calls[0]!.args : "").toContain("kept");
+    expect(proto.records.find((record) => record.role === "tool")?.content).not.toBe("fabricated");
   });
 
   test("rejects input with no hook payload", () => {

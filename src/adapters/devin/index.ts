@@ -57,6 +57,13 @@ export const devinAdapter: SourceAdapter = {
       recognized += 1;
       const sessionId = nonemptyString(hook.session_id);
       if (sessionId) sessionIds.add(sessionId);
+      if (sessionIds.size > 1) {
+        // Native tool and prompt ids are unique only within a session, so one input is one session.
+        throw new NormalizationError(
+          "source_group_conflict",
+          "Devin input must hold the hook payloads of one session.",
+        );
+      }
       const timestamp = envelope ? parseTimestamp(row.received_at) : undefined;
       const base = {
         ...(timestamp ? { timestamp } : {}),
@@ -133,12 +140,10 @@ export const devinAdapter: SourceAdapter = {
         });
       }
       const input = withoutEnvironment(hook.tool_input);
-      // Native ids are unique within a session, not across sessions in one input.
-      const sessionKey = `${sessionId ?? ""}\u0000${callId}`;
 
       if (toolName === USER_MESSAGE_TOOL) {
         // The agent's visible reply. Its PostToolUse is only the delivery receipt.
-        const key = sessionKey;
+        const key = callId;
         const content =
           isObject(input) && typeof input.message === "string" ? input.message : "";
         if (!emittedMessages.has(key) && content) {
@@ -156,8 +161,8 @@ export const devinAdapter: SourceAdapter = {
       }
 
       // A PostToolUse without its PreToolUse still carries the call's input.
-      if (!emittedCalls.has(sessionKey)) {
-        emittedCalls.add(sessionKey);
+      if (!emittedCalls.has(callId)) {
+        emittedCalls.add(callId);
         events.push({
           type: "tool_call",
           args: jsonString(input),
@@ -169,7 +174,7 @@ export const devinAdapter: SourceAdapter = {
         });
       }
       if (eventName === "PostToolUse") {
-        if (emittedResults.has(sessionKey)) {
+        if (emittedResults.has(callId)) {
           diagnostics.push({
             code: "duplicate_tool_result",
             message: `Dropped a repeated Devin tool result on line ${line}.`,
@@ -177,7 +182,7 @@ export const devinAdapter: SourceAdapter = {
           });
           continue;
         }
-        emittedResults.add(sessionKey);
+        emittedResults.add(callId);
         const response = withoutEnvironment(hook.tool_response);
         const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
@@ -208,7 +213,6 @@ export const devinAdapter: SourceAdapter = {
       context: {
         source: "devin",
         ...(sourceGroupId ? { sourceGroupId } : {}),
-        ...(sessionIds.size > 1 ? { sourceGroupAmbiguous: true } : {}),
         ...(sessionIds.size === 0 ? { sourceGroupRequired: true } : {}),
       },
       diagnostics,
@@ -231,7 +235,13 @@ export function withoutEnvironment(value: unknown): unknown {
   const copy: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (ENVIRONMENT_FIELD.test(key)) continue;
-    copy[key] = withoutEnvironment(item);
+    // defineProperty keeps a parsed "__proto__" key an own field instead of invoking its setter.
+    Object.defineProperty(copy, key, {
+      value: withoutEnvironment(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return copy;
 }
