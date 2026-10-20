@@ -174,13 +174,16 @@ export const devinAdapter: SourceAdapter = {
         }
         emittedResults.add(callId);
         const response = withoutEnvironment(hook.tool_response);
+        const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
           type: "tool_result",
-          content: resultContent(response),
+          content: shell ? shell.content : resultContent(response),
           callId,
-          ...(isObject(response) && typeof response.success === "boolean"
-            ? { ok: response.success }
-            : {}),
+          ...(shell
+            ? { ok: shell.exitCode === 0 }
+            : isObject(response) && typeof response.success === "boolean"
+              ? { ok: response.success }
+              : {}),
           ...base,
           ...(nativeCallId ? { sourceRecordId: `${nativeCallId}:result` } : anchor(line)),
           componentIndex: 1,
@@ -235,4 +238,23 @@ function resultContent(response: unknown): string {
   const error = typeof response.error === "string" ? response.error : "";
   if (output && error) return `${output}\n${error}`;
   return output || error;
+}
+
+/**
+ * Devin frames an `exec` result as "Output from command in shell <id>:\n<output>\n\n\nExit
+ * code: <n>" and reports `success: true` even for a nonzero exit. Unframe the output and take the
+ * outcome from the exit code. Any other shape keeps the native fields.
+ */
+const SHELL_FRAME = /^Output from command in shell [0-9a-f]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
+
+function shellResult(response: unknown): { content: string; exitCode: number } | undefined {
+  if (!isObject(response) || typeof response.output !== "string") return undefined;
+  const match = SHELL_FRAME.exec(response.output);
+  if (!match) return undefined;
+  const error = typeof response.error === "string" ? response.error : "";
+  const output = match[1]!;
+  return {
+    content: output && error ? `${output}\n${error}` : output || error,
+    exitCode: Number(match[2]),
+  };
 }

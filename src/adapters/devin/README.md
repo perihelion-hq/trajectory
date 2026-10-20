@@ -19,8 +19,11 @@ Decoding:
 - `PreToolUse` becomes a tool call identified by `tool_use_id`; the matching
   `PostToolUse` becomes its result. `tool_response` is
   `{ success, output, error }`: `output` (and `error`, when present) is the
-  result text and `success` is the source-native `ok`. A command that exits
-  non-zero still reports `success: true`; the exit code stays in the text.
+  result text and `success` is the source-native `ok`. A shell call (`exec`)
+  reports `success: true` even when the command exits non-zero, and frames its
+  output as `Output from command in shell <id>:\n<output>\n\n\nExit code: <n>`.
+  For `exec`, the adapter unframes the output and sets `ok` to `n == 0`. An
+  `exec` output in any other shape keeps the native fields.
 - A `PostToolUse` with no earlier `PreToolUse` for the same `tool_use_id` emits
   the call from its own `tool_input`, so a single `PostToolUse` objectified on
   its own yields the same call and result records as the whole stream.

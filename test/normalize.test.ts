@@ -1672,6 +1672,31 @@ describe("devin hook stream", () => {
     ).toThrow(expect.objectContaining({ code: "source_group_conflict" }));
   });
 
+  test("unframes an exec result and takes its outcome from the exit code", () => {
+    const result = (output: string, toolName = "exec") =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: toolName,
+          tool_use_id: "toolu_frame",
+          tool_input: { command: "ls" },
+          // Devin reports success even when the command exits nonzero.
+          tool_response: { success: true, output, error: null },
+          session_id: "5d1c7e0a-0000-4000-8000-00000000d001",
+        }),
+        sourceContext: { partial: true },
+      }).records.find((record) => record.record_type === "tool");
+    const failed = result("Output from command in shell c8e01a:\nls: missing\n\n\nExit code: 2");
+    expect([JSON.parse(failed?.tool_result_json ?? "null"), failed?.tool_result_ok]).toEqual(["ls: missing", false]);
+    const empty = result("Output from command in shell 9d8a4a:\n\n\nExit code: 0");
+    expect([JSON.parse(empty?.tool_result_json ?? "null"), empty?.tool_result_ok]).toEqual(["", true]);
+    // Another tool's output is never unframed, and keeps the native success.
+    const other = result("Output from command in shell c8e01a:\nx\n\n\nExit code: 2", "read");
+    expect(other?.tool_result_ok).toBe(true);
+    expect(other?.tool_result_json).toContain("Exit code: 2");
+  });
+
   test("rejects input with no hook payload", () => {
     expect(() => normalizeTranscript({ source: "devin", transcript: '{"role":"user"}' })).toThrow(
       expect.objectContaining({ code: "invalid_input" }),

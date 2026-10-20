@@ -1321,11 +1321,12 @@ var devinAdapter = {
         }
         emittedResults.add(callId);
         const response = withoutEnvironment(hook.tool_response);
+        const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
           type: "tool_result",
-          content: resultContent2(response),
+          content: shell ? shell.content : resultContent2(response),
           callId,
-          ...isObject(response) && typeof response.success === "boolean" ? { ok: response.success } : {},
+          ...shell ? { ok: shell.exitCode === 0 } : isObject(response) && typeof response.success === "boolean" ? { ok: response.success } : {},
           ...base,
           ...nativeCallId ? { sourceRecordId: `${nativeCallId}:result` } : anchor(line),
           componentIndex: 1
@@ -1378,6 +1379,21 @@ function resultContent2(response) {
     return `${output}
 ${error}`;
   return output || error;
+}
+var SHELL_FRAME = /^Output from command in shell [0-9a-f]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
+function shellResult(response) {
+  if (!isObject(response) || typeof response.output !== "string")
+    return;
+  const match = SHELL_FRAME.exec(response.output);
+  if (!match)
+    return;
+  const error = typeof response.error === "string" ? response.error : "";
+  const output = match[1];
+  return {
+    content: output && error ? `${output}
+${error}` : output || error,
+    exitCode: Number(match[2])
+  };
 }
 
 // src/adapters/droid/index.ts

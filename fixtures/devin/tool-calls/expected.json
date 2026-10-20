@@ -24,7 +24,7 @@
     {
       "role": "tool",
       "tool_call_id": "toolu_example_01",
-      "content": "Output from command in shell 2a908c:\n4:def clamp_percentage(value):\n\n\nExit code: 0",
+      "content": "4:def clamp_percentage(value):",
       "ok": true,
       "timestamp": "2026-10-20T16:30:03.000Z"
     },
@@ -43,8 +43,8 @@
     {
       "role": "tool",
       "tool_call_id": "toolu_example_02",
-      "content": "Output from command in shell c8e01a:\nls: cannot access '/definitely-missing-path': No such file or directory\n\n\nExit code: 2",
-      "ok": true,
+      "content": "ls: cannot access '/definitely-missing-path': No such file or directory",
+      "ok": false,
       "timestamp": "2026-10-20T16:30:05.000Z"
     },
     {
@@ -62,7 +62,7 @@
     {
       "role": "tool",
       "tool_call_id": "toolu_example_03",
-      "content": "Output from command in shell 1bd49c:\n[probe d79799e] docs: add note\n 1 file changed, 1 insertion(+)\n\n\nExit code: 0",
+      "content": "[probe d79799e] docs: add note\n 1 file changed, 1 insertion(+)",
       "ok": true,
       "timestamp": "2026-10-20T16:30:06.000Z"
     },
