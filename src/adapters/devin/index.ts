@@ -98,12 +98,15 @@ export const devinAdapter: SourceAdapter = {
 
       if (eventName === "PostCompaction") {
         const summary = nonemptyString(hook.summary);
+        const receivedAt = envelope ? nonemptyString(row.received_at) : undefined;
         if (summary) {
           events.push({
             type: "observation",
             content: summary,
             ...base,
-            ...anchor(line),
+            // A capturing hook objectifies each payload alone, where every line is line 1; the
+            // arrival time keeps two compactions of one session distinct.
+            ...(receivedAt ? { sourceRecordId: `compaction:${receivedAt}` } : anchor(line)),
             componentIndex: 0,
           });
         }
@@ -130,10 +133,12 @@ export const devinAdapter: SourceAdapter = {
         });
       }
       const input = withoutEnvironment(hook.tool_input);
+      // Native ids are unique within a session, not across sessions in one input.
+      const sessionKey = `${sessionId ?? ""}\u0000${callId}`;
 
       if (toolName === USER_MESSAGE_TOOL) {
         // The agent's visible reply. Its PostToolUse is only the delivery receipt.
-        const key = callId;
+        const key = sessionKey;
         const content =
           isObject(input) && typeof input.message === "string" ? input.message : "";
         if (!emittedMessages.has(key) && content) {
@@ -151,8 +156,8 @@ export const devinAdapter: SourceAdapter = {
       }
 
       // A PostToolUse without its PreToolUse still carries the call's input.
-      if (!emittedCalls.has(callId)) {
-        emittedCalls.add(callId);
+      if (!emittedCalls.has(sessionKey)) {
+        emittedCalls.add(sessionKey);
         events.push({
           type: "tool_call",
           args: jsonString(input),
@@ -164,7 +169,7 @@ export const devinAdapter: SourceAdapter = {
         });
       }
       if (eventName === "PostToolUse") {
-        if (emittedResults.has(callId)) {
+        if (emittedResults.has(sessionKey)) {
           diagnostics.push({
             code: "duplicate_tool_result",
             message: `Dropped a repeated Devin tool result on line ${line}.`,
@@ -172,7 +177,7 @@ export const devinAdapter: SourceAdapter = {
           });
           continue;
         }
-        emittedResults.add(callId);
+        emittedResults.add(sessionKey);
         const response = withoutEnvironment(hook.tool_response);
         const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
@@ -245,7 +250,7 @@ function resultContent(response: unknown): string {
  * code: <n>" and reports `success: true` even for a nonzero exit. Unframe the output and take the
  * outcome from the exit code. Any other shape keeps the native fields.
  */
-const SHELL_FRAME = /^Output from command in shell [0-9a-f]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
+const SHELL_FRAME = /^Output from command in shell [^\s:]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
 
 function shellResult(response: unknown): { content: string; exitCode: number } | undefined {
   if (!isObject(response) || typeof response.output !== "string") return undefined;

@@ -39,7 +39,8 @@ Environment fields are removed at decode, at every depth of `tool_input` and
 `tool_response`, before any argument or result is serialized: keys named `env`,
 `envs`, `environment`, `env_vars` or `environment_variables`, case-insensitive.
 Devin's `exec` tool input carries the session's secrets in `env`; no output of
-this library contains them.
+this library contains those environment fields. Secret text inside command
+output or other hook text is not removed here; that is the caller's redaction.
 
 Every payload carries `session_id`, which is the canonical source group. Devin
 payloads carry no model identity. A payload without `tool_use_id` gets a
@@ -47,5 +48,7 @@ line-local synthesized id (`tool_call_id_synthesized`). Listing is not supported
 there is no local store to discover.
 
 Callers that objectify each payload as it arrives pass
-`sourceContext.partial: true`; identities come from `tool_use_id` and
-`prompt_id`, not from line position.
+`sourceContext.partial: true`; identities come from `tool_use_id`,
+`prompt_id` and, for `PostCompaction`, the envelope's `received_at`, not from
+line position. A payload missing those ids falls back to a line-local anchor,
+which is stable only for whole-stream input.

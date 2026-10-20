@@ -1256,12 +1256,13 @@ var devinAdapter = {
       }
       if (eventName === "PostCompaction") {
         const summary = nonemptyString(hook.summary);
+        const receivedAt = envelope ? nonemptyString(row.received_at) : undefined;
         if (summary) {
           events.push({
             type: "observation",
             content: summary,
             ...base,
-            ...anchor(line),
+            ...receivedAt ? { sourceRecordId: `compaction:${receivedAt}` } : anchor(line),
             componentIndex: 0
           });
         }
@@ -1282,8 +1283,9 @@ var devinAdapter = {
         });
       }
       const input = withoutEnvironment(hook.tool_input);
+      const sessionKey = `${sessionId ?? ""}\x00${callId}`;
       if (toolName === USER_MESSAGE_TOOL) {
-        const key = callId;
+        const key = sessionKey;
         const content = isObject(input) && typeof input.message === "string" ? input.message : "";
         if (!emittedMessages.has(key) && content) {
           emittedMessages.add(key);
@@ -1298,8 +1300,8 @@ var devinAdapter = {
         }
         continue;
       }
-      if (!emittedCalls.has(callId)) {
-        emittedCalls.add(callId);
+      if (!emittedCalls.has(sessionKey)) {
+        emittedCalls.add(sessionKey);
         events.push({
           type: "tool_call",
           args: jsonString(input),
@@ -1311,7 +1313,7 @@ var devinAdapter = {
         });
       }
       if (eventName === "PostToolUse") {
-        if (emittedResults.has(callId)) {
+        if (emittedResults.has(sessionKey)) {
           diagnostics.push({
             code: "duplicate_tool_result",
             message: `Dropped a repeated Devin tool result on line ${line}.`,
@@ -1319,7 +1321,7 @@ var devinAdapter = {
           });
           continue;
         }
-        emittedResults.add(callId);
+        emittedResults.add(sessionKey);
         const response = withoutEnvironment(hook.tool_response);
         const shell = toolName === "exec" ? shellResult(response) : undefined;
         events.push({
@@ -1380,7 +1382,7 @@ function resultContent2(response) {
 ${error}`;
   return output || error;
 }
-var SHELL_FRAME = /^Output from command in shell [0-9a-f]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
+var SHELL_FRAME = /^Output from command in shell [^\s:]+:\n?([\s\S]*?)\n\n\nExit code: (-?\d+)\n?$/;
 function shellResult(response) {
   if (!isObject(response) || typeof response.output !== "string")
     return;

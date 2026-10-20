@@ -1697,6 +1697,42 @@ describe("devin hook stream", () => {
     expect(other?.tool_result_json).toContain("Exit code: 2");
   });
 
+  test("keeps two compactions objectified alone distinct, and scopes call ids to a session", () => {
+    const groupId = "5d1c7e0a-0000-4000-8000-00000000d001";
+    const compaction = (receivedAt: string, summary: string) =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: JSON.stringify({
+          received_at: receivedAt,
+          hook: { hook_event_name: "PostCompaction", summary, session_id: groupId },
+        }),
+        sourceContext: { groupId, partial: true },
+      })
+        .records.filter((record) => record.record_type === "observation")
+        .map((record) => record.record_id);
+    const first = compaction("2026-10-20T16:30:00.000Z", "first summary");
+    const second = compaction("2026-10-20T16:40:00.000Z", "second summary");
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+
+    const call = (sessionId: string) =>
+      JSON.stringify({
+        hook_event_name: "PostToolUse",
+        tool_name: "exec",
+        tool_use_id: "toolu_shared",
+        tool_input: { command: `echo ${sessionId}` },
+        tool_response: { success: true, output: "ok", error: null },
+        session_id: sessionId,
+      });
+    const mixed = normalizeTranscript({
+      source: "devin",
+      transcript: `${call("a")}\n${call("b")}`,
+      sourceContext: { partial: true },
+    });
+    expect(mixed.records.filter((record) => record.role === "tool")).toHaveLength(2);
+  });
+
   test("rejects input with no hook payload", () => {
     expect(() => normalizeTranscript({ source: "devin", transcript: '{"role":"user"}' })).toThrow(
       expect.objectContaining({ code: "invalid_input" }),
