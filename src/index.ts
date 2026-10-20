@@ -4,6 +4,7 @@ import { claudeCodeAdapter } from "./adapters/claude-code/index.js";
 import { codexAdapter } from "./adapters/codex/index.js";
 import { copilotCliAdapter } from "./adapters/copilot-cli/index.js";
 import { cursorAdapter } from "./adapters/cursor/index.js";
+import { devinAdapter } from "./adapters/devin/index.js";
 import { droidAdapter } from "./adapters/droid/index.js";
 import { geminiCliAdapter } from "./adapters/gemini-cli/index.js";
 import { hermesAdapter } from "./adapters/hermes/index.js";
@@ -41,6 +42,7 @@ const ADAPTERS: Record<TranscriptTrajectorySource, SourceAdapter> = {
   codex: codexAdapter,
   "copilot-cli": copilotCliAdapter,
   cursor: cursorAdapter,
+  devin: devinAdapter,
   droid: droidAdapter,
   "gemini-cli": geminiCliAdapter,
   hermes: hermesAdapter,

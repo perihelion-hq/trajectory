@@ -1,0 +1,8 @@
+{"hook_event_name": "UserPromptSubmit", "prompt": "Run the tests.", "session_id": "5d1c7e0a-0000-4000-8000-00000000d001", "prompt_id": "prompt-0001"}
+not json
+{"hook_event_name": "PreToolUse", "tool_name": "exec", "tool_input": {"command": "pytest -q", "workdir": "/home/ubuntu/repos/example", "env": {"API_TOKEN": "DEVIN_FIXTURE_SECRET_7f3a9c", "CODEX_AUTH_JSON": "{\"tokens\":{\"access_token\":\"DEVIN_FIXTURE_SECRET_7f3a9c\"}}"}}, "tool_use_id": "toolu_example_11", "session_id": "5d1c7e0a-0000-4000-8000-00000000d001", "prompt_id": "prompt-0001"}
+{"hook_event_name": "PostToolUse", "tool_name": "exec", "tool_input": {"command": "pytest -q", "workdir": "/home/ubuntu/repos/example", "env": {"API_TOKEN": "DEVIN_FIXTURE_SECRET_7f3a9c"}, "options": {"Environment": {"NESTED": "DEVIN_FIXTURE_SECRET_7f3a9c"}}}, "tool_use_id": "toolu_example_11", "tool_response": {"success": false, "output": "", "error": "1 failed", "env": {"API_TOKEN": "DEVIN_FIXTURE_SECRET_7f3a9c"}}, "session_id": "5d1c7e0a-0000-4000-8000-00000000d001", "prompt_id": "prompt-0001"}
+{"hook_event_name": "PostToolUse", "tool_name": "exec", "tool_input": {"command": "pytest -q", "workdir": "/home/ubuntu/repos/example", "env": {"API_TOKEN": "DEVIN_FIXTURE_SECRET_7f3a9c"}}, "tool_use_id": "toolu_example_11", "tool_response": {"success": false, "output": "", "error": "1 failed"}, "session_id": "5d1c7e0a-0000-4000-8000-00000000d001", "prompt_id": "prompt-0001"}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "true"}, "tool_response": {"success": true, "output": "", "error": null}, "session_id": "5d1c7e0a-0000-4000-8000-00000000d001", "prompt_id": "prompt-0001"}
+{"hook_event_name": "FutureHook", "session_id": "5d1c7e0a-0000-4000-8000-00000000d001"}
+{"tool_name": "exec"}

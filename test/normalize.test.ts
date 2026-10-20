@@ -28,6 +28,8 @@ const fixtures = [
   { source: "copilot-cli", name: "copilot-cli/cleanup" },
   { source: "cursor", name: "cursor/tool-calls" },
   { source: "cursor", name: "cursor/cleanup" },
+  { source: "devin", name: "devin/tool-calls" },
+  { source: "devin", name: "devin/cleanup" },
   { source: "droid", name: "droid/happy-path" },
   { source: "gemini-cli", name: "gemini-cli/tool-calls" },
   { source: "gemini-cli", name: "gemini-cli/cleanup" },
@@ -1604,6 +1606,153 @@ describe("public API", () => {
     expect(assistant?.timestamp).toBe("2026-07-01T12:00:01.000Z");
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: "timestamps_interpolated", count: 1 }),
+    );
+  });
+});
+
+describe("devin hook stream", () => {
+  const secret = "DEVIN_FIXTURE_SECRET_7f3a9c";
+  const transcript = fixtureText("devin/cleanup", "input.jsonl");
+
+  test("the fixture really carries a secret-bearing environment", () => {
+    expect(transcript).toContain(secret);
+  });
+
+  test("drops every environment field before any output", () => {
+    const trajectory = normalizeTranscript({ source: "devin", transcript });
+    const canonical = normalizeToCanonical({
+      source: "devin",
+      transcript,
+      sourceContext: { groupId: "5d1c7e0a-0000-4000-8000-00000000d001" },
+    });
+    for (const output of [trajectory, canonical]) {
+      const serialized = JSON.stringify(output);
+      expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain("API_TOKEN");
+      expect(serialized).not.toContain("CODEX_AUTH_JSON");
+    }
+    const call = trajectory.records.find(
+      (record) => record.role === "assistant" && record.content === null,
+    );
+    expect(call && "tool_calls" in call ? JSON.parse(call.tool_calls[0]!.args) : null).toEqual({
+      command: "pytest -q",
+      workdir: "/home/ubuntu/repos/example",
+    });
+  });
+
+  test("objectifies one PostToolUse alone with a stable identity", () => {
+    const line = transcript.split("\n")[3]!;
+    const groupId = "5d1c7e0a-0000-4000-8000-00000000d001";
+    // A capturing hook objectifies each payload as it arrives, as a partial fragment.
+    const alone = normalizeToCanonical({
+      source: "devin",
+      transcript: line,
+      sourceContext: { groupId, partial: true },
+    });
+    const whole = normalizeToCanonical({ source: "devin", transcript, sourceContext: { groupId } });
+    const ids = (records: typeof alone.records) =>
+      records.filter((record) => record.tool_call_id === "toolu_example_11").map((record) => record.record_id);
+    expect(ids(alone.records)).toHaveLength(2);
+    expect(ids(alone.records)).toEqual(ids(whole.records));
+    expect(JSON.stringify(alone)).not.toContain(secret);
+  });
+
+  test("takes the canonical group from the session id and rejects a conflicting one", () => {
+    const line = transcript.split("\n")[0]!;
+    expect(
+      normalizeToCanonical({ source: "devin", transcript: line, sourceContext: { partial: true } })
+        .records[0]?.source_group_id,
+    ).toBe("5d1c7e0a-0000-4000-8000-00000000d001");
+    expect(() =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: line,
+        sourceContext: { groupId: "other", partial: true },
+      }),
+    ).toThrow(expect.objectContaining({ code: "source_group_conflict" }));
+  });
+
+  test("unframes an exec result and takes its outcome from the exit code", () => {
+    const result = (output: string, toolName = "exec") =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: JSON.stringify({
+          hook_event_name: "PostToolUse",
+          tool_name: toolName,
+          tool_use_id: "toolu_frame",
+          tool_input: { command: "ls" },
+          // Devin reports success even when the command exits nonzero.
+          tool_response: { success: true, output, error: null },
+          session_id: "5d1c7e0a-0000-4000-8000-00000000d001",
+        }),
+        sourceContext: { partial: true },
+      }).records.find((record) => record.record_type === "tool");
+    const failed = result("Output from command in shell c8e01a:\nls: missing\n\n\nExit code: 2");
+    expect([failed?.tool_result_json, failed?.tool_result_ok]).toEqual(["ls: missing", false]);
+    const empty = result("Output from command in shell 9d8a4a:\n\n\nExit code: 0");
+    expect([empty?.tool_result_json, empty?.tool_result_ok]).toEqual(["", true]);
+    // Another tool's output is never unframed, and keeps the native success.
+    const other = result("Output from command in shell c8e01a:\nx\n\n\nExit code: 2", "read");
+    expect(other?.tool_result_ok).toBe(true);
+    expect(other?.tool_result_json).toContain("Exit code: 2");
+  });
+
+  test("keeps compactions objectified alone distinct, refuses mixed sessions, keeps __proto__ keys", () => {
+    const groupId = "5d1c7e0a-0000-4000-8000-00000000d001";
+    const compaction = (receivedAt: string, summary: string) =>
+      normalizeToCanonical({
+        source: "devin",
+        transcript: JSON.stringify({
+          received_at: receivedAt,
+          hook: { hook_event_name: "PostCompaction", summary, session_id: groupId },
+        }),
+        sourceContext: { groupId, partial: true },
+      })
+        .records.filter((record) => record.record_type === "observation")
+        .map((record) => record.record_id);
+    const first = compaction("2026-10-20T16:30:00.000Z", "first summary");
+    const second = compaction("2026-10-20T16:40:00.000Z", "second summary");
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toBe(first[0]);
+
+    const call = (sessionId: string) =>
+      JSON.stringify({
+        hook_event_name: "PostToolUse",
+        tool_name: "exec",
+        tool_use_id: "toolu_shared",
+        tool_input: { command: `echo ${sessionId}` },
+        tool_response: { success: true, output: "ok", error: null },
+        session_id: sessionId,
+      });
+    // Native ids are unique only within a session, so a mixed input is refused, not merged.
+    expect(() =>
+      normalizeTranscript({
+        source: "devin",
+        transcript: `${call("a")}\n${call("b")}`,
+        sourceContext: { partial: true },
+      }),
+    ).toThrow(expect.objectContaining({ code: "source_group_conflict" }));
+    const proto = normalizeTranscript({
+      source: "devin",
+      transcript: JSON.stringify({
+        hook_event_name: "PostToolUse",
+        tool_name: "read",
+        tool_use_id: "toolu_proto",
+        tool_input: JSON.parse('{"__proto__": {"path": "kept"}}'),
+        tool_response: JSON.parse('{"__proto__": {"output": "fabricated", "success": false}}'),
+        session_id: "a",
+      }),
+      sourceContext: { partial: true },
+    });
+    const protoCall = proto.records.find((record) => "tool_calls" in record);
+    expect(protoCall && "tool_calls" in protoCall ? protoCall.tool_calls[0]!.args : "").toContain("kept");
+    expect(proto.records.find((record) => record.role === "tool")?.content).not.toBe("fabricated");
+  });
+
+  test("rejects input with no hook payload", () => {
+    expect(() => normalizeTranscript({ source: "devin", transcript: '{"role":"user"}' })).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
     );
   });
 });

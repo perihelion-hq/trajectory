@@ -115,6 +115,7 @@ function isKnownNormalizationOnlySource(source: AnyTrajectorySource): boolean {
     source === "amp" ||
     source === "copilot-cli" ||
     source === "cursor" ||
+    source === "devin" ||
     source === "gemini-cli" ||
     source === "opencode"
   );

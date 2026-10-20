@@ -1,0 +1,86 @@
+{
+  "records": [
+    {
+      "role": "meta",
+      "source": "devin"
+    },
+    {
+      "role": "user",
+      "content": "List the helpers in percentage.py and commit a note.",
+      "timestamp": "2026-10-20T16:30:01.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "toolu_example_01",
+          "name": "exec",
+          "args": "{\"command\":\"grep -n \\\"def\\\" percentage.py\",\"workdir\":\"/home/ubuntu/repos/example\"}"
+        }
+      ],
+      "timestamp": "2026-10-20T16:30:02.000Z"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "toolu_example_01",
+      "content": "4:def clamp_percentage(value):",
+      "ok": true,
+      "timestamp": "2026-10-20T16:30:03.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "toolu_example_02",
+          "name": "exec",
+          "args": "{\"command\":\"ls /definitely-missing-path\",\"workdir\":\"/home/ubuntu/repos/example\"}"
+        }
+      ],
+      "timestamp": "2026-10-20T16:30:04.000Z"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "toolu_example_02",
+      "content": "ls: cannot access '/definitely-missing-path': No such file or directory",
+      "ok": false,
+      "timestamp": "2026-10-20T16:30:05.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "toolu_example_03",
+          "name": "exec",
+          "args": "{\"command\":\"git commit -m \\\"docs: add note\\\"\",\"workdir\":\"/home/ubuntu/repos/example\"}"
+        }
+      ],
+      "timestamp": "2026-10-20T16:30:06.000Z"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "toolu_example_03",
+      "content": "[probe d79799e] docs: add note\n 1 file changed, 1 insertion(+)",
+      "ok": true,
+      "timestamp": "2026-10-20T16:30:06.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Found one helper and committed the note.",
+      "timestamp": "2026-10-20T16:30:07.000Z"
+    },
+    {
+      "role": "user",
+      "content": "Thanks, that is all.",
+      "timestamp": "2026-10-20T16:31:00.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": "Done.",
+      "timestamp": "2026-10-20T16:31:01.000Z"
+    }
+  ],
+  "diagnostics": []
+}
