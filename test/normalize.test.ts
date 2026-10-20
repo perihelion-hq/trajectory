@@ -1688,9 +1688,9 @@ describe("devin hook stream", () => {
         sourceContext: { partial: true },
       }).records.find((record) => record.record_type === "tool");
     const failed = result("Output from command in shell c8e01a:\nls: missing\n\n\nExit code: 2");
-    expect([JSON.parse(failed?.tool_result_json ?? "null"), failed?.tool_result_ok]).toEqual(["ls: missing", false]);
+    expect([failed?.tool_result_json, failed?.tool_result_ok]).toEqual(["ls: missing", false]);
     const empty = result("Output from command in shell 9d8a4a:\n\n\nExit code: 0");
-    expect([JSON.parse(empty?.tool_result_json ?? "null"), empty?.tool_result_ok]).toEqual(["", true]);
+    expect([empty?.tool_result_json, empty?.tool_result_ok]).toEqual(["", true]);
     // Another tool's output is never unframed, and keeps the native success.
     const other = result("Output from command in shell c8e01a:\nx\n\n\nExit code: 2", "read");
     expect(other?.tool_result_ok).toBe(true);
