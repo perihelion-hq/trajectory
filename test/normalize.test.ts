@@ -445,6 +445,30 @@ describe("public API", () => {
     );
   });
 
+  test("reads a steered, cancelled Amp tool result as a failed result", () => {
+    const reason =
+      "Wait interrupted by a steering message. The underlying work was not stopped. You can call this wait again if needed.";
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    toolResult.run = { reason, status: "cancelled" };
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "tool", tool_call_id: "tool-1", content: reason, ok: false }),
+      ]),
+    );
+    for (const run of [{ status: "cancelled" }, { status: "cancelled", reason: "" }]) {
+      toolResult.run = run;
+      expect(() =>
+        normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+      ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+    }
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 
