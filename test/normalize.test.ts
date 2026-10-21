@@ -445,6 +445,36 @@ describe("public API", () => {
     );
   });
 
+  test("defers an Amp async Task result while its subagent is still running", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const blocks = exportDocument.messages.flatMap(
+      (message: { content?: unknown[] }) => message.content ?? [],
+    );
+    const call = blocks.find((block: { type?: string }) => block.type === "tool_use");
+    const toolResult = blocks.find((block: { type?: string }) => block.type === "tool_result");
+    Object.assign(call, { name: "Task", input: { prompt: "Inspect it." } });
+    toolResult.run = { status: "done", result: { status: "running" } };
+
+    const running = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(running.records.some((record) => record.role === "tool")).toBe(false);
+    expect(running.records.some((record) => record.role === "assistant")).toBe(true);
+    expect(running.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "incomplete_transcript" })]),
+    );
+
+    toolResult.run = { status: "done", result: { status: "completed", output: "done" } };
+    const settled = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(settled.records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ role: "tool", tool_call_id: "tool-1", ok: true })]),
+    );
+
+    // Only the Task tool's result carries the subagent's state; another tool's data is kept.
+    Object.assign(call, { name: "shell_command", input: { command: "pwd" } });
+    toolResult.run = { status: "done", result: { status: "running" } };
+    const other = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(other.records.some((record) => record.role === "tool")).toBe(true);
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 

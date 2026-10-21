@@ -36,6 +36,7 @@ export const ampAdapter: SourceAdapter = {
     const protocolMessageIds = new Set<string>();
     const toolCallCounts = new Map<string, number>();
     const toolResultCounts = new Map<string, number>();
+    const asyncTaskCallIds = new Set<string>();
     let pendingAssistantAfter: "user" | "tool_result" | undefined;
 
     for (let messageIndex = 0; messageIndex < root.messages.length; messageIndex += 1) {
@@ -121,7 +122,14 @@ export const ampAdapter: SourceAdapter = {
           if (!callId || !isObject(block.run) || typeof block.run.status !== "string") {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} is malformed.`);
           }
-          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status)) {
+          // Amp marks an asynchronous Task run done once the subagent starts, with the
+          // subagent's own state in the result, and rewrites the result in place when it ends.
+          const runningTask =
+            block.run.status === "done" &&
+            asyncTaskCallIds.has(callId) &&
+            isObject(block.run.result) &&
+            block.run.result.status === "running";
+          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status) || runningTask) {
             increment(toolResultCounts, callId);
             pendingAssistantAfter = undefined;
             diagnostics.push({
@@ -240,6 +248,7 @@ export const ampAdapter: SourceAdapter = {
             invalid(`Amp tool use ${messageIndex}:${componentIndex} is malformed.`);
           }
           increment(toolCallCounts, callId);
+          if (name === "Task") asyncTaskCallIds.add(callId);
           events.push({
             type: "tool_call",
             id: callId,
