@@ -469,6 +469,20 @@ describe("public API", () => {
     }
   });
 
+  test("reads a done Amp shell result with a nonzero exit code as failed", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    const outcomes = [0, 1, 128].map((exitCode) => {
+      toolResult.run = { status: "done", result: { output: "out", exitCode } };
+      const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+      return result.records.find((record) => record.role === "tool")?.ok;
+    });
+
+    expect(outcomes).toEqual([true, false, false]);
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 
