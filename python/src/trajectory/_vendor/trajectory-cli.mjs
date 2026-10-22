@@ -3686,15 +3686,6 @@ function isAIData(value) {
 function isToolCall(value) {
   return isObject3(value) && "args" in value && (value.id === undefined || typeof value.id === "string") && (value.name === undefined || typeof value.name === "string");
 }
-// src/execution-streams.ts
-var CODEX_TOOL_ITEMS = new Set([
-  "command_execution",
-  "file_change",
-  "mcp_tool_call",
-  "web_search",
-  "todo_list",
-  "collab_tool_call"
-]);
 // src/adapters/claude-code/list.ts
 import { homedir as homedir2 } from "node:os";
 import { basename, join as join3 } from "node:path";

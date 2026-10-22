@@ -8,7 +8,7 @@ import { NormalizationError } from "./types.js";
 type JsonObject = Record<string, unknown>;
 
 /** Codex `exec --json` item types that are tool calls; messages, reasoning and errors are not. */
-const CODEX_TOOL_ITEMS = new Set([
+const CODEX_TOOL_ITEMS = /* @__PURE__ */ new Set([
   "command_execution",
   "file_change",
   "mcp_tool_call",
