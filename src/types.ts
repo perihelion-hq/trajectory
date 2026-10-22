@@ -104,6 +104,7 @@ export type DiagnosticCode =
   | "sidechain_record_dropped"
   | "tool_call_id_synthesized"
   | "duplicate_tool_call_id"
+  | "tool_call_id_reused"
   | "orphan_tool_result"
   | "duplicate_tool_result"
   | "unknown_tool_name"

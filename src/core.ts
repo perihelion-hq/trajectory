@@ -52,6 +52,7 @@ interface OpenCall {
 interface CallPlanEntry {
   finalId: string;
   renamed: boolean;
+  reused: boolean;
   synthesized: boolean;
   sourceId: string;
 }
@@ -88,6 +89,10 @@ function planEvents(events: DecodedEvent[]): EventPlan {
   const calls = new Map<number, CallPlanEntry>();
   const openCalls = new Map<string, OpenCall[]>();
   const usedIds = new Set<string>();
+  // Planning observes source-order answers; emission owns OpenCall.consumed independently.
+  const unanswered = new Map<string, number>();
+  // Emission's prepopulated queues can consume future calls; such histories are not safe reuse.
+  const strayResults = new Set<string>();
   const occOf: number[] = [];
   const bucketOf: string[] = [];
   let occurrence = -1;
@@ -104,22 +109,33 @@ function planEvents(events: DecodedEvent[]): EventPlan {
     occOf.push(occurrence);
     bucketOf.push(bucket);
 
+    if (event.type === "tool_result") {
+      const sourceId = event.callId || "";
+      const remaining = unanswered.get(sourceId) ?? 0;
+      if (remaining > 0) unanswered.set(sourceId, remaining - 1);
+      else strayResults.add(sourceId);
+    }
     if (event.type === "tool_call") {
       const sourceId = event.id || `call_${index + 1}`;
       const synthesized = !event.id;
       let finalId = sourceId;
       let renamed = false;
+      let reused = false;
       if (usedIds.has(finalId)) {
         let suffix = 2;
         while (usedIds.has(`${sourceId}__${suffix}`)) suffix += 1;
         finalId = `${sourceId}__${suffix}`;
         renamed = true;
+        // A completed source occurrence (or collision with an allocated suffix) is unambiguous.
+        // Unanswered or out-of-order same-id history still reports source loss.
+        reused = (unanswered.get(sourceId) ?? 0) === 0 && !strayResults.has(sourceId);
       }
       usedIds.add(finalId);
+      unanswered.set(sourceId, (unanswered.get(sourceId) ?? 0) + 1);
       const entries = openCalls.get(sourceId) ?? [];
       entries.push({ finalId, consumed: false });
       openCalls.set(sourceId, entries);
-      calls.set(index, { finalId, renamed, synthesized, sourceId });
+      calls.set(index, { finalId, renamed, reused, synthesized, sourceId });
     }
   }
 
@@ -385,8 +401,8 @@ function normalizeEvent(
     }
     if (entry?.renamed) {
       diagnostics.push({
-        code: "duplicate_tool_call_id",
-        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId)} to ${JSON.stringify(finalId)}.`,
+        code: entry.reused ? "tool_call_id_reused" : "duplicate_tool_call_id",
+        message: `Renamed ${entry.reused ? "reused" : "duplicate"} tool-call ID ${JSON.stringify(sourceId)} to ${JSON.stringify(finalId)}.`,
         recordIndex,
         ...(event.inputLine ? { inputLine: event.inputLine } : {}),
       });

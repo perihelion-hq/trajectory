@@ -1064,6 +1064,45 @@ describe("public API", () => {
     }
   });
 
+  test("distinguishes completed tool-call ID reuse from an overlapping duplicate", () => {
+    const row = (payload: Record<string, unknown>) =>
+      JSON.stringify({ timestamp: "2026-03-30T05:38:34.500Z", type: "response_item", payload });
+    const user = row({ type: "message", role: "user", content: [{ type: "input_text", text: "go" }] });
+    const call = row({ type: "function_call", name: "shell", call_id: "call_A", arguments: "{}" });
+    const output = (text: string) => row({ type: "function_call_output", call_id: "call_A", output: text });
+    const assistant = row({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "done" }],
+    });
+    const codes = (lines: string[]) =>
+      normalizeTranscript({ source: "codex", transcript: lines.join("\n") }).diagnostics.map(
+        (diagnostic) => diagnostic.code,
+      );
+
+    const reused = normalizeTranscript({
+      source: "codex",
+      transcript: [user, call, output("first"), call, output("second"), assistant].join("\n"),
+    });
+    expect(reused.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["tool_call_id_reused"]);
+    expect(
+      reused.records.flatMap((record) =>
+        record.role === "tool" ? [[record.tool_call_id, record.content]] : [],
+      ),
+    ).toEqual([
+      ["call_A", "first"],
+      ["call_A__2", "second"],
+    ]);
+
+    // A second call while the first is unanswered, or after a stray result, stays a duplicate.
+    expect(codes([user, call, call, output("first"), output("second"), assistant])).toContain(
+      "duplicate_tool_call_id",
+    );
+    expect(codes([user, output("stray"), call, output("first"), call, output("second"), assistant])).toContain(
+      "duplicate_tool_call_id",
+    );
+  });
+
   test("reports every duplicate-ID Amp tool call without a result", () => {
     const exportDocument = JSON.parse(
       fixtureText("amp/orb-thread-export", "input.json"),

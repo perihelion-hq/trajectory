@@ -2859,6 +2859,8 @@ function planEvents(events) {
   const calls = new Map;
   const openCalls = new Map;
   const usedIds = new Set;
+  const unanswered = new Map;
+  const strayResults = new Set;
   const occOf = [];
   const bucketOf = [];
   let occurrence = -1;
@@ -2874,23 +2876,34 @@ function planEvents(events) {
     const bucket = semanticBucket(event);
     occOf.push(occurrence);
     bucketOf.push(bucket);
+    if (event.type === "tool_result") {
+      const sourceId = event.callId || "";
+      const remaining = unanswered.get(sourceId) ?? 0;
+      if (remaining > 0)
+        unanswered.set(sourceId, remaining - 1);
+      else
+        strayResults.add(sourceId);
+    }
     if (event.type === "tool_call") {
       const sourceId = event.id || `call_${index + 1}`;
       const synthesized = !event.id;
       let finalId = sourceId;
       let renamed = false;
+      let reused = false;
       if (usedIds.has(finalId)) {
         let suffix = 2;
         while (usedIds.has(`${sourceId}__${suffix}`))
           suffix += 1;
         finalId = `${sourceId}__${suffix}`;
         renamed = true;
+        reused = (unanswered.get(sourceId) ?? 0) === 0 && !strayResults.has(sourceId);
       }
       usedIds.add(finalId);
+      unanswered.set(sourceId, (unanswered.get(sourceId) ?? 0) + 1);
       const entries = openCalls.get(sourceId) ?? [];
       entries.push({ finalId, consumed: false });
       openCalls.set(sourceId, entries);
-      calls.set(index, { finalId, renamed, synthesized, sourceId });
+      calls.set(index, { finalId, renamed, reused, synthesized, sourceId });
     }
   }
   const seen = new Map;
@@ -3049,8 +3062,8 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     }
     if (entry?.renamed) {
       diagnostics.push({
-        code: "duplicate_tool_call_id",
-        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
+        code: entry.reused ? "tool_call_id_reused" : "duplicate_tool_call_id",
+        message: `Renamed ${entry.reused ? "reused" : "duplicate"} tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
