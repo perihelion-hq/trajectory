@@ -70,6 +70,9 @@ function streamRecords(stream: string, owner: string): JsonObject[] {
 
 /** A turn's input and output tokens; null when either is absent, and malformed usage throws. */
 function codexTurnTokens(usage: unknown): number | null {
+  if (usage !== undefined && usage !== null && !isObject(usage)) {
+    throw new NormalizationError("invalid_input", "Codex execution stream token usage is invalid.");
+  }
   const fields = isObject(usage) ? usage : {};
   let total = 0;
   let reported = true;

@@ -60,6 +60,8 @@ describe("inspectCodexExecStream", () => {
       `not json\n${lines({ type: "turn.started" })}`,
       lines([1]),
       lines({ type: "turn.started" }, { type: "turn.completed", usage: { input_tokens: -1, output_tokens: 1 } }),
+      lines({ type: "turn.started" }, { type: "turn.completed", usage: "invalid" }),
+      lines({ type: "turn.started" }, { type: "turn.completed", usage: [] }),
     ]) {
       expect(() => inspectCodexExecStream(stream)).toThrow(
         expect.objectContaining({ code: "invalid_input" }),
@@ -69,6 +71,10 @@ describe("inspectCodexExecStream", () => {
       inspectCodexExecStream(
         lines({ type: "thread.started", thread_id: "a" }, { type: "thread.started", thread_id: "b" }),
       ).threadId,
+    ).toBeNull();
+    // Absent or null usage is unknown, not malformed.
+    expect(
+      inspectCodexExecStream(lines({ type: "turn.started" }, { type: "turn.completed", usage: null })).tokenCount,
     ).toBeNull();
   });
 });
