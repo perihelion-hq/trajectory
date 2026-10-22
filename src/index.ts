@@ -487,6 +487,11 @@ export {
   type DeepAgentsToolMessageData,
 } from "./adapters/deepagents/index.js";
 export { CANONICAL_SCHEMA_VERSION, NORMALIZER_VERSION } from "./version.js";
+export {
+  inspectAmpExecutionInit,
+  inspectClaudeCodeStream,
+  inspectCodexExecStream,
+} from "./execution-streams.js";
 
 export {
   listTrajectories,
@@ -502,6 +507,7 @@ export {
   NormalizationError,
   type AmpExecutionActivity,
   type AmpExecutionIdentity,
+  type AmpExecutionInit,
   type AmpExecutionStream,
   type AmpModelAttestation,
   type AssistantMessageRecord,
@@ -511,6 +517,8 @@ export {
   type CanonicalRecordType,
   type CanonicalResult,
   type CheckpointTrajectorySource,
+  type ClaudeCodeExecutionStream,
+  type CodexExecutionStream,
   type Diagnostic,
   type DiagnosticCode,
   type MetaRecord,

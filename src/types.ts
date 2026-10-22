@@ -242,6 +242,53 @@ export interface AmpExecutionActivity {
   toolCallCount: number;
 }
 
+/**
+ * What one Codex `exec --json` run observably did, whether it finished or was stopped. The stream
+ * never names the requested model; each started turn ran on it unless a reroute names another.
+ */
+export interface CodexExecutionStream {
+  /** The sole non-empty `thread.started` identity, or null when absent or ambiguous. */
+  threadId: string | null;
+  /** Number of `turn.started` events. */
+  turnCount: number;
+  /** Each provider reroute's target model, in stream order. */
+  reroutedModels: string[];
+  /** Distinct identified tool items started or completed. */
+  toolCallCount: number;
+  /** Sorted ids of completed tool items whose every completion reported success. */
+  succeededCallIds: string[];
+  /** Sorted ids of completed tool items any completion of which reported failure. */
+  failedCallIds: string[];
+  /** Input and output tokens over every turn, or null unless every turn completed with usage. */
+  tokenCount: number | null;
+  /** The last `turn.failed` or `error` event's message; the caller classifies it. */
+  terminalError: string | null;
+}
+
+/** What one Claude Code `stream-json` run's main session observably did. */
+export interface ClaudeCodeExecutionStream {
+  /** The first `system` `init` record's session, or null when absent. */
+  sessionId: string | null;
+  /** Unique assistant models of the main session in first-served order, without the placeholder. */
+  servedModels: string[];
+  /** Distinct main-session tool-use ids. */
+  toolCallCount: number;
+  /** Sorted tool-use ids whose main-session results all succeeded. */
+  succeededCallIds: string[];
+  /** Sorted tool-use ids with a main-session result reporting an error. */
+  failedCallIds: string[];
+  /** The last main-session result's `modelUsage` total, or null when absent or malformed. */
+  tokenCount: number | null;
+  /** The last main-session result when it reports an error: its status and its own text. */
+  terminalFailure: { apiErrorStatus: number | null; text: string | null } | null;
+}
+
+/** The MCP servers one Amp --stream-json execution's `system` `init` record reports. */
+export interface AmpExecutionInit {
+  /** Each named server with its reported status, or null when no init record names a list. */
+  mcpServers: { name: string; status: string | null }[] | null;
+}
+
 /** Best-effort native identity recovered for cleanup from an Amp execution stream. */
 export interface AmpExecutionIdentity {
   /** The sole non-empty native identity observed, or null when ownership is ambiguous. */
