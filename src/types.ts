@@ -230,6 +230,8 @@ export interface AmpExecutionStream {
   tokenCount: number | null;
   /** Number of assistant tool-use blocks observed in the stream. */
   toolCallCount: number;
+  /** The terminal result's own error message when it reports an error, otherwise null. */
+  error: string | null;
 }
 
 /** Best-effort native identity recovered for cleanup from an Amp execution stream. */

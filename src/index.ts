@@ -280,6 +280,12 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     successful: terminal.is_error === false && terminal.subtype === "success",
     tokenCount,
     toolCallCount,
+    error:
+      terminal.is_error === true &&
+      typeof terminal.error === "string" &&
+      terminal.error.trim().length > 0
+        ? terminal.error
+        : null,
   };
 }
 

@@ -590,7 +590,29 @@ describe("public API", () => {
       successful: true,
       tokenCount: 26,
       toolCallCount: 1,
+      error: null,
     });
+  });
+
+  test("reads an Amp terminal error's own message, and only an error's", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    // Amp CLI 0.0.1792310430 refused a run this way and exited 0.
+    const failed = {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      num_turns: 0,
+      error: "Low Credit Balance Your Amp credit balance is low.",
+      session_id: threadId,
+    };
+    const read = (result: Record<string, unknown>) =>
+      inspectAmpExecutionStream([init, result].map((record) => JSON.stringify(record)).join("\n"));
+
+    expect(read(failed)).toMatchObject({ successful: false, error: failed.error });
+    expect(read({ ...failed, error: "  " }).error).toBeNull();
+    expect(read({ ...failed, error: 42 }).error).toBeNull();
+    expect(read({ ...failed, is_error: false, subtype: "success" }).error).toBeNull();
   });
 
   test("rejects malformed identities inside an otherwise complete Amp execution stream", () => {
@@ -769,6 +791,7 @@ describe("public API", () => {
         successful: true,
         tokenCount,
         toolCallCount: 1,
+        error: null,
       });
     }
   });
