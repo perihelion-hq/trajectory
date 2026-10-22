@@ -360,6 +360,8 @@ var ampAdapter = {
           let payload = block.run.result;
           if (!Object.hasOwn(block.run, "result") && block.run.status === "error" && isObject(block.run.error) && nonemptyString(block.run.error.message)) {
             payload = block.run.error;
+          } else if (!Object.hasOwn(block.run, "result") && block.run.status === "cancelled" && nonemptyString(block.run.reason)) {
+            payload = block.run.reason;
           } else if (!Object.hasOwn(block.run, "result")) {
             invalid(`Amp terminal tool result ${messageIndex}:${componentIndex} must contain result.`);
           }
