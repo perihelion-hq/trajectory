@@ -11,11 +11,16 @@ OpenClaw embeds the same SessionManager, so both adapters share one decoder
 (see [`../pi-session-shared.ts`](../pi-session-shared.ts)); the `openclaw`
 source additionally masks its `delivery-mirror` placeholder model.
 
-Lifecycle and extension entry types (`model_change`, `thinking_level_change`,
-`session_info`, `compaction`, `branch_summary`, `custom`, `custom_message`,
-`label`) are ignored, matching pi's own transcript readers, and message roles
-other than `user`/`assistant`/`toolResult` (for example `bashExecution` rows
-written for user-typed `!` commands) are skipped. Entries are decoded in file
+Entries pi puts into the model context without a user/assistant/tool role
+(`compaction`, `branch_summary`, `custom_message`, and the `compactionSummary`,
+`branchSummary`, `custom`, and `bashExecution` message roles, the last written
+for user-typed `!` commands) become user messages carrying the exact text pi's
+`convertToLlm` sends; `!!` commands, which pi keeps out of the context, are
+skipped, and such an entry with no text is reported as
+`injected_context_dropped`. A compaction's retained tail repeats earlier entries
+and is not re-emitted. Other lifecycle entries (`model_change`,
+`thinking_level_change`, `session_info`, `custom` extension state, `label`)
+carry no context and are ignored. Entries are decoded in file
 order; a session whose tree was branched in place contributes every recorded
 branch, not just the active path. Failed tool results (`isError`) gain an
 `Error:` prefix, and malformed JSONL lines are recoverable diagnostics — pi's
