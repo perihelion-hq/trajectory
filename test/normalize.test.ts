@@ -541,6 +541,7 @@ describe("public API", () => {
       attestedMessageCount: 2,
       servedModels: ["example/model"],
       complete: true,
+      interruptedTail: false,
       diagnostics: [
         {
           code: "noise_record_dropped",
@@ -549,6 +550,41 @@ describe("public API", () => {
         },
       ],
     });
+  });
+
+  test("marks a stopped Amp run's final cancelled placeholder turn", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const placeholder = {
+      role: "assistant",
+      messageId: 5,
+      protocolMessageID: "msg-assistant-3",
+      protocolMessageVersion: 0,
+      state: { type: "cancelled" },
+      content: [{ type: "text", text: "Checking", blockState: "streaming", startTime: 1787392806000 }],
+    };
+    exportDocument.messages.push(placeholder);
+
+    const stopped = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+    expect(stopped).toMatchObject({
+      assistantMessageCount: 3,
+      attestedMessageCount: 2,
+      servedModels: ["example/model"],
+      interruptedTail: true,
+    });
+    expect(() =>
+      normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+    ).not.toThrow();
+
+    // A cancelled turn that reported usage, or one that is not last, is not the placeholder.
+    const reported = structuredClone(exportDocument);
+    reported.messages.at(-1).usage = { model: "example/model", timestamp: "2026-08-22T10:00:06.000Z" };
+    expect(inspectAmpModelAttestation(JSON.stringify(reported)).interruptedTail).toBe(false);
+    exportDocument.messages.push({
+      ...structuredClone(exportDocument.messages[0]),
+      messageId: 6,
+      protocolMessageID: "msg-user-3",
+    });
+    expect(inspectAmpModelAttestation(JSON.stringify(exportDocument)).interruptedTail).toBe(false);
   });
 
   test("keeps mixed and missing Amp models visible without a meta fallback", () => {
@@ -564,6 +600,7 @@ describe("public API", () => {
       attestedMessageCount: 1,
       servedModels: ["z/model"],
       complete: true,
+      interruptedTail: false,
       diagnostics: [
         {
           code: "noise_record_dropped",

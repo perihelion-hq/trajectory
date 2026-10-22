@@ -31,4 +31,7 @@ total assistant message count, the count carrying a non-empty `usage.model`, the
 observed models, the adapter diagnostics, and a completeness flag derived from
 `incomplete_transcript`. Each source assistant message is counted once even when it contains several
 text, thinking, or tool-use blocks. The API does not substitute the aggregate meta model for a
-missing per-message observation.
+missing per-message observation. A `cancelled` assistant message and a `streaming` block are
+incomplete. `interruptedTail` is true when the export's final message is a cancelled assistant turn
+with no `usage` and no complete block, the placeholder a stopped run leaves; it is still counted
+and unattested, so a consumer that admits it must do so explicitly.

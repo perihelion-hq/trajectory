@@ -15,8 +15,10 @@ import {
 
 const TERMINAL_TOOL_STATUSES = new Set(["done", "error", "cancelled"]);
 const NONTERMINAL_TOOL_STATUSES = new Set(["running", "pending"]);
-const ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming"]);
-const ASSISTANT_BLOCK_STATES = new Set(["complete", "pending"]);
+// A stopped `amp -x` exports its interrupted turn as a cancelled message whose last block was
+// still streaming; both are incomplete, never refused.
+const ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming", "cancelled"]);
+const ASSISTANT_BLOCK_STATES = new Set(["complete", "pending", "streaming"]);
 
 export const ampAdapter: SourceAdapter = {
   source: "amp",
@@ -195,9 +197,17 @@ export const ampAdapter: SourceAdapter = {
         isObject(message.usage) ? message.usage.timestamp : undefined,
       );
       const model = nonemptyString(isObject(message.usage) ? message.usage.model : undefined);
+      // The export's last message, cancelled before it reported usage or completed any block, is
+      // the placeholder a stopped run leaves; it stays an observation, marked as that.
+      const interruptedPlaceholder =
+        message.state.type === "cancelled" &&
+        messageIndex === root.messages.length - 1 &&
+        !Object.hasOwn(message, "usage") &&
+        message.content.every((block) => !isObject(block) || block.blockState !== "complete");
       assistantModelObservations.push({
         sourceRecordId,
         ...(model ? { model } : {}),
+        ...(interruptedPlaceholder ? { interruptedPlaceholder: true as const } : {}),
       });
 
       for (let componentIndex = 0; componentIndex < message.content.length; componentIndex += 1) {

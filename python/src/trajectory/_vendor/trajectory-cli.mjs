@@ -253,8 +253,8 @@ function invalidAtifTranscript() {
 // src/adapters/amp/index.ts
 var TERMINAL_TOOL_STATUSES = new Set(["done", "error", "cancelled"]);
 var NONTERMINAL_TOOL_STATUSES = new Set(["running", "pending"]);
-var ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming"]);
-var ASSISTANT_BLOCK_STATES = new Set(["complete", "pending"]);
+var ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming", "cancelled"]);
+var ASSISTANT_BLOCK_STATES = new Set(["complete", "pending", "streaming"]);
 var ampAdapter = {
   source: "amp",
   decode(transcript) {
@@ -396,9 +396,11 @@ var ampAdapter = {
       }
       const fallbackTimestamp = parseTimestamp(isObject(message.usage) ? message.usage.timestamp : undefined);
       const model = nonemptyString(isObject(message.usage) ? message.usage.model : undefined);
+      const interruptedPlaceholder = message.state.type === "cancelled" && messageIndex === root.messages.length - 1 && !Object.hasOwn(message, "usage") && message.content.every((block) => !isObject(block) || block.blockState !== "complete");
       assistantModelObservations.push({
         sourceRecordId,
-        ...model ? { model } : {}
+        ...model ? { model } : {},
+        ...interruptedPlaceholder ? { interruptedPlaceholder: true } : {}
       });
       for (let componentIndex = 0;componentIndex < message.content.length; componentIndex += 1) {
         const block = message.content[componentIndex];

@@ -212,6 +212,11 @@ export interface AmpModelAttestation {
   servedModels: string[];
   /** False when the Amp adapter observes any incomplete-transcript condition. */
   complete: boolean;
+  /**
+   * True when the export's final assistant message is a cancelled turn that reported no usage and
+   * completed no block: the placeholder an interrupted run leaves. It is counted, unattested.
+   */
+  interruptedTail: boolean;
   /** The Amp adapter's complete diagnostic set for the export. */
   diagnostics: Diagnostic[];
 }

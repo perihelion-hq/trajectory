@@ -118,6 +118,7 @@ export function inspectAmpModelAttestation(transcript: string): AmpModelAttestat
       (observation) => observation.model !== undefined,
     ).length,
     servedModels,
+    interruptedTail: observations.at(-1)?.interruptedPlaceholder === true,
     complete: !decoded.diagnostics.some(
       (diagnostic) => diagnostic.code === "incomplete_transcript",
     ),
