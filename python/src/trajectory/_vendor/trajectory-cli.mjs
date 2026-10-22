@@ -62,8 +62,8 @@ function parseTimestamp(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime()))
     return value;
   if (typeof value === "number" && value > 100000000000) {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? undefined : date;
+    const date2 = new Date(value);
+    return Number.isNaN(date2.getTime()) ? undefined : date2;
   }
   if (typeof value !== "string" || value.length === 0)
     return;
@@ -1543,12 +1543,12 @@ var geminiCliAdapter = {
       }
       if (Array.isArray(message.thoughts)) {
         for (const thought of message.thoughts) {
-          const content = thoughtContent(thought);
-          if (!content.trim())
+          const content2 = thoughtContent(thought);
+          if (!content2.trim())
             continue;
           emit({
             type: "reasoning",
-            content,
+            content: content2,
             ...timestamp ? { timestamp } : {},
             ...model ? { model } : {}
           });
@@ -2227,10 +2227,10 @@ var openHandsAdapter = {
             ...timestamp ? { timestamp } : {}
           });
         }
-        const callId = callIdByActionId.get(event.id) ?? actionCallId(event);
+        const callId2 = callIdByActionId.get(event.id) ?? actionCallId(event);
         emit({
           type: "tool_call",
-          id: callId,
+          id: callId2,
           args: actionArgsText(event),
           ...typeof event.tool_name === "string" && event.tool_name ? { name: event.tool_name } : {},
           ...timestamp ? { timestamp } : {}
@@ -2517,17 +2517,17 @@ function resolveBounds(bounds) {
     return copyDefaults();
   assertObject(bounds, "bounds");
   assertKnownKeys(bounds, ["toolArguments", "toolResults"], "bounds");
-  const toolArguments = bounds.toolArguments;
-  if (toolArguments !== undefined) {
-    assertObject(toolArguments, "bounds.toolArguments");
-    assertKnownKeys(toolArguments, ["maxCharacters"], "bounds.toolArguments");
+  const toolArguments2 = bounds.toolArguments;
+  if (toolArguments2 !== undefined) {
+    assertObject(toolArguments2, "bounds.toolArguments");
+    assertKnownKeys(toolArguments2, ["maxCharacters"], "bounds.toolArguments");
   }
   const toolResults = bounds.toolResults;
   if (toolResults !== undefined) {
     assertObject(toolResults, "bounds.toolResults");
     assertKnownKeys(toolResults, ["maxCharacters", "strategy"], "bounds.toolResults");
   }
-  const argumentLimit = resolveLimit(toolArguments?.maxCharacters, DEFAULT_NORMALIZATION_BOUNDS.toolArguments.maxCharacters, "bounds.toolArguments.maxCharacters");
+  const argumentLimit = resolveLimit(toolArguments2?.maxCharacters, DEFAULT_NORMALIZATION_BOUNDS.toolArguments.maxCharacters, "bounds.toolArguments.maxCharacters");
   if (argumentLimit !== null && argumentLimit < 2) {
     throw invalidBounds("bounds.toolArguments.maxCharacters must be at least 2 so arguments can remain a JSON object.");
   }
@@ -2913,11 +2913,11 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (event.role === "system") {
       if (filters.systemMessages === "omit")
         return;
-      const record = {
+      const record3 = {
         role: "system",
         content: event.content
       };
-      return record;
+      return record3;
     }
     if (event.role === "user" && NOISE_PREFIXES.some((prefix) => event.content.trimStart().startsWith(prefix))) {
       diagnostics.push({
@@ -2929,45 +2929,45 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
       return;
     }
     if (event.role === "user") {
-      const record = {
+      const record3 = {
         role: "user",
         content: event.content
       };
-      return record;
+      return record3;
     }
-    const record = {
+    const record2 = {
       role: "assistant",
       content: event.content
     };
-    return record;
+    return record2;
   }
   if (event.type === "reasoning") {
     if (!event.content.trim()) {
       return;
     }
-    const record = {
+    const record2 = {
       role: "reasoning",
       content: event.content
     };
-    return record;
+    return record2;
   }
   if (event.type === "observation") {
     if (!event.content.trim())
       return;
-    const record = {
+    const record2 = {
       role: "observation",
       content: event.content
     };
-    return record;
+    return record2;
   }
   if (event.type === "tool_call") {
     const entry = plan.calls.get(eventIndex);
-    const sourceId = entry?.sourceId ?? (event.id || `call_${eventIndex + 1}`);
-    const finalId = entry?.finalId ?? sourceId;
+    const sourceId2 = entry?.sourceId ?? (event.id || `call_${eventIndex + 1}`);
+    const finalId2 = entry?.finalId ?? sourceId2;
     if (entry?.synthesized ?? !event.id) {
       diagnostics.push({
         code: "tool_call_id_synthesized",
-        message: `Synthesized tool-call ID ${JSON.stringify(sourceId)}.`,
+        message: `Synthesized tool-call ID ${JSON.stringify(sourceId2)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -2975,7 +2975,7 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (entry?.renamed) {
       diagnostics.push({
         code: "duplicate_tool_call_id",
-        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId)} to ${JSON.stringify(finalId)}.`,
+        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -2993,7 +2993,7 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (args.reshaped) {
       diagnostics.push({
         code: "tool_arguments_reshaped",
-        message: `Reshaped arguments for tool call ${JSON.stringify(finalId)} into a JSON object.`,
+        message: `Reshaped arguments for tool call ${JSON.stringify(finalId2)} into a JSON object.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
@@ -3001,17 +3001,17 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     if (args.truncated) {
       diagnostics.push({
         code: "tool_arguments_truncated",
-        message: `Truncated arguments for tool call ${JSON.stringify(finalId)} to at most ${bounds.toolArguments.maxCharacters} Unicode code points.`,
+        message: `Truncated arguments for tool call ${JSON.stringify(finalId2)} to at most ${bounds.toolArguments.maxCharacters} Unicode code points.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
     }
-    const record = {
+    const record2 = {
       role: "assistant",
       content: null,
-      tool_calls: [{ id: finalId, name, args: args.args }]
+      tool_calls: [{ id: finalId2, name, args: args.args }]
     };
-    return record;
+    return record2;
   }
   const sourceId = event.callId || "";
   const entries = plan.openCalls.get(sourceId);
@@ -3091,11 +3091,11 @@ function fillTimestamps(count, anchors, context, diagnostics) {
   if (first === undefined || last === undefined)
     return output;
   const anchorMs = (index) => {
-    const anchor = anchors.get(index);
-    if (!anchor) {
+    const anchor2 = anchors.get(index);
+    if (!anchor2) {
       throw new NormalizationError("invalid_normalized_transcript", `Missing timestamp anchor at record ${index}.`);
     }
-    return anchor.getTime();
+    return anchor2.getTime();
   };
   for (let index = 0;index < first; index += 1) {
     output[index] = new Date(anchorMs(first) - (first - index) * 1000).toISOString();
@@ -3392,7 +3392,7 @@ async function loadDeepAgentsCheckpoint(checkpoint) {
     const stderr = [];
     let outputBytes = 0;
     let settled = false;
-    const fail = (error) => {
+    const fail2 = (error) => {
       if (settled)
         return;
       settled = true;
@@ -3400,16 +3400,16 @@ async function loadDeepAgentsCheckpoint(checkpoint) {
     };
     child.on("error", (error) => {
       if (error.code === "ENOENT") {
-        fail(new NormalizationError("python_unavailable", `Could not execute Python interpreter ${JSON.stringify(python)}. ` + "Pass checkpoint.pythonExecutable or set PYTHON."));
+        fail2(new NormalizationError("python_unavailable", `Could not execute Python interpreter ${JSON.stringify(python)}. ` + "Pass checkpoint.pythonExecutable or set PYTHON."));
         return;
       }
-      fail(new NormalizationError("checkpoint_read_failed", `Could not start the Deep Agents checkpoint helper: ${error.message}`));
+      fail2(new NormalizationError("checkpoint_read_failed", `Could not start the Deep Agents checkpoint helper: ${error.message}`));
     });
     child.stdout.on("data", (chunk) => {
       outputBytes += chunk.length;
       if (outputBytes > MAX_HELPER_OUTPUT_BYTES) {
         child.kill();
-        fail(new NormalizationError("checkpoint_read_failed", "Deep Agents checkpoint helper output exceeded 64 MiB."));
+        fail2(new NormalizationError("checkpoint_read_failed", "Deep Agents checkpoint helper output exceeded 64 MiB."));
         return;
       }
       stdout.push(chunk);
@@ -4132,6 +4132,460 @@ function isPartialTranscript(input) {
   return (input.sourceContext?.partial ?? false) || (input.sourceContext?.baseByteOffset ?? 0) > 0;
 }
 
+// src/adapters/slack/timestamp.ts
+function parseSlackTimestamp(value) {
+  if (typeof value !== "string" || !/^\d{1,12}\.\d{6}$/.test(value))
+    return;
+  const [seconds, micros] = value.split(".");
+  if (!seconds || !micros)
+    return;
+  if (seconds.length > 1 && seconds.startsWith("0"))
+    return;
+  const date = new Date(Number(seconds) * 1000 + Number(micros.slice(0, 3)));
+  if (Number.isNaN(date.getTime()) || !/^\d{4}-/.test(date.toISOString()))
+    return;
+  return { ts: value, date, sequence: Number(micros) };
+}
+function compareSlackTimestamps(left, right) {
+  const a = BigInt(left.replace(".", ""));
+  const b = BigInt(right.replace(".", ""));
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// src/adapters/slack/metadata.ts
+var MENTION = /<@([UW][A-Z0-9]+)(?:\|([^>]*))?>/g;
+function buildDirectory(value) {
+  const directory = new Map;
+  if (value === undefined)
+    return directory;
+  if (!Array.isArray(value))
+    throw invalid2("Slack users must be an array.");
+  for (const user of value) {
+    if (!isObject(user) || typeof user.id !== "string" || !user.id.trim()) {
+      throw invalid2("Slack users require a source user id.");
+    }
+    const name = profileName(user.profile) ?? label(user.real_name) ?? label(user.name);
+    const existing = directory.get(user.id);
+    if (existing?.name !== undefined && name !== undefined && existing.name !== name) {
+      throw invalid2("Conflicting names for a Slack user; supply one authoritative user snapshot.");
+    }
+    const merged = name ?? existing?.name;
+    directory.set(user.id, {
+      ...merged === undefined ? {} : { name: merged },
+      bot: user.is_bot === true || existing?.bot === true
+    });
+  }
+  return directory;
+}
+function inlineName(raw) {
+  const name = profileName(raw.user_profile);
+  if (name || typeof raw.bot_id !== "string" || !raw.bot_id.trim())
+    return name;
+  return (isObject(raw.bot_profile) ? label(raw.bot_profile.name) : undefined) ?? label(raw.username);
+}
+function isBotMessage(raw) {
+  return raw.subtype === "bot_message" || isObject(raw.bot_profile) || nonemptyText(raw.user) === undefined;
+}
+function readReactions(value) {
+  if (!Array.isArray(value))
+    throw invalid2("Slack reactions must be an array.");
+  const counts = new Map;
+  for (const reaction of value) {
+    if (!isObject(reaction))
+      throw invalid2("Slack reactions must be objects.");
+    const name = nonemptyText(reaction.name);
+    if (!name || counts.has(name))
+      throw invalid2("Slack reaction names must be non-empty and unique per message.");
+    const count = reaction.count;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      throw invalid2("Slack reaction count must be a non-negative safe integer.");
+    }
+    counts.set(name, count);
+  }
+  return Object.fromEntries([...counts].sort(([a], [b]) => compareText(a, b)));
+}
+function filePlaceholders(value) {
+  if (!Array.isArray(value))
+    return [];
+  return value.map((file) => {
+    const name = isObject(file) ? label(file.name) ?? label(file.title) : undefined;
+    return name ? `[file: ${name}]` : "[file]";
+  });
+}
+function mentionedUsers(text) {
+  return [...text.matchAll(MENTION)].map((match) => [match[1], label(match[2])]);
+}
+function resolveMentions(text, labels) {
+  return text.replace(MENTION, (mention, id) => {
+    const name = labels.get(id);
+    return name === undefined ? mention : `@${name}`;
+  });
+}
+function assignLabels(names, bots) {
+  const labels = new Map;
+  const used = new Set;
+  for (const id of [...names.keys()].sort(compareText)) {
+    const base = names.get(id) ?? id;
+    let candidate = base;
+    for (let n = 2;used.has(candidate); n++)
+      candidate = `${base} (${n})`;
+    used.add(candidate);
+    labels.set(id, candidate);
+  }
+  const participants = Object.fromEntries([...labels].sort(([, a], [, b]) => compareText(a, b)).map(([id, name]) => [name, bots.has(id) ? { id, bot: true } : { id }]));
+  return { labels, participants };
+}
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+function profileName(value) {
+  if (!isObject(value))
+    return;
+  return label(value.display_name) ?? label(value.real_name);
+}
+function label(value) {
+  if (typeof value !== "string")
+    return;
+  return value.trim() || undefined;
+}
+function nonemptyText(value) {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+function invalid2(message) {
+  return new NormalizationError("invalid_input", message);
+}
+
+// src/adapters/slack/index.ts
+var MESSAGE_SUBTYPES = new Set([
+  "bot_message",
+  "thread_broadcast",
+  "file_share",
+  "me_message"
+]);
+function normalizeSlackChannel(input) {
+  const channel = nonemptyString(input.channel);
+  if (!channel)
+    throw invalid3("Slack input requires the channel the messages were fetched from.");
+  if (input.channelName !== undefined && !input.channelName.trim()) {
+    throw invalid3("Slack channel name must be non-empty when supplied.");
+  }
+  const directory = buildDirectory(input.users);
+  const diagnostics = [];
+  const copies = new Map;
+  const inlineNames = new Map;
+  const bots = new Set([...directory].filter(([, entry]) => entry.bot).map(([id]) => id));
+  for (const raw of parseSlackMessages(input.transcript)) {
+    if (!isObject(raw))
+      throw invalid3("Slack messages must be objects.");
+    if (raw.type !== "message" || raw.subtype !== undefined && !MESSAGE_SUBTYPES.has(String(raw.subtype))) {
+      diagnostics.push({
+        code: "slack_message_dropped",
+        message: "Skipped an unsupported Slack event or message subtype."
+      });
+      continue;
+    }
+    const time = parseSlackTimestamp(raw.ts);
+    const thread = parseSlackTimestamp(raw.thread_ts ?? raw.ts);
+    if (!time || !thread)
+      throw invalid3("Invalid Slack message timestamp.");
+    if (compareSlackTimestamps(time.ts, thread.ts) < 0) {
+      throw invalid3("Slack reply precedes its thread root.");
+    }
+    if (raw.channel !== undefined && raw.channel !== channel) {
+      throw invalid3("Slack message channel disagrees with the supplied channel.");
+    }
+    const speaker = nonemptyString(raw.user) ?? nonemptyString(raw.bot_id);
+    if (!speaker)
+      throw invalid3("Slack message has no source speaker identity.");
+    const name = inlineName(raw);
+    const previous = inlineNames.get(speaker);
+    if (name && (!previous || compareSlackTimestamps(time.ts, previous.ts) > 0 || time.ts === previous.ts && compareText(name, previous.name) > 0)) {
+      inlineNames.set(speaker, { ts: time.ts, name });
+    }
+    if (isBotMessage(raw))
+      bots.add(speaker);
+    const text = typeof raw.text === "string" && raw.text.trim() ? raw.text : undefined;
+    const content = [...text ? [text] : [], ...filePlaceholders(raw.files)].join(`
+`);
+    if (!content) {
+      diagnostics.push({
+        code: "slack_message_dropped",
+        message: "Skipped a Slack post without text or files (blocks are not extracted)."
+      });
+      continue;
+    }
+    const edited = isObject(raw.edited) ? parseSlackTimestamp(raw.edited.ts)?.ts : undefined;
+    const snapshot = {
+      ts: time.ts,
+      thread: thread.ts,
+      speaker,
+      content,
+      timestamp: time.date.toISOString().replace(/\.\d{3}Z$/, "Z"),
+      ..."reactions" in raw ? { reactions: readReactions(raw.reactions) } : {},
+      ...edited ? { edited } : {}
+    };
+    const existing = copies.get(time.ts);
+    if (existing)
+      existing.push(snapshot);
+    else
+      copies.set(time.ts, [snapshot]);
+  }
+  const messages = new Map;
+  for (const ts of [...copies.keys()].sort(compareSlackTimestamps)) {
+    messages.set(ts, reconcile(copies.get(ts) ?? [], diagnostics));
+  }
+  const names = new Map;
+  for (const message of messages.values()) {
+    names.set(message.speaker, directory.get(message.speaker)?.name ?? inlineNames.get(message.speaker)?.name);
+  }
+  for (const message of messages.values()) {
+    for (const [id, inline] of mentionedUsers(message.content)) {
+      if (names.get(id) === undefined)
+        names.set(id, directory.get(id)?.name ?? inlineNames.get(id)?.name ?? inline);
+    }
+  }
+  const { labels, participants } = assignLabels(names, bots);
+  const meta = {
+    role: "meta",
+    source: "slack",
+    channel,
+    ...input.channelName === undefined ? {} : { channel_name: input.channelName },
+    participants
+  };
+  const toMessage = (snapshot) => ({
+    id: snapshot.ts,
+    speaker: labels.get(snapshot.speaker) ?? snapshot.speaker,
+    content: resolveMentions(snapshot.content, labels),
+    timestamp: snapshot.timestamp,
+    ...snapshot.reactions === undefined ? {} : { reactions: snapshot.reactions }
+  });
+  const repliesOf = new Map;
+  for (const message of messages.values()) {
+    if (message.ts === message.thread)
+      continue;
+    const replies = repliesOf.get(message.thread);
+    if (replies)
+      replies.push(toMessage(message));
+    else
+      repliesOf.set(message.thread, [toMessage(message)]);
+  }
+  const roots = new Set([...messages.values()].filter((m) => m.ts === m.thread).map((m) => m.ts));
+  const posts = [];
+  for (const thread of new Set([...roots, ...repliesOf.keys()])) {
+    const replies = repliesOf.get(thread) ?? [];
+    const root = roots.has(thread) ? messages.get(thread) : undefined;
+    if (root) {
+      posts.push(replies.length > 0 ? { ...toMessage(root), replies } : toMessage(root));
+    } else {
+      diagnostics.push({
+        code: "slack_missing_root",
+        message: "Thread replies were present without their root; the root was not fabricated."
+      });
+      posts.push({ id: thread, missing_root: true, replies });
+    }
+  }
+  posts.sort((a, b) => compareSlackTimestamps(a.id, b.id));
+  return { records: [meta, ...posts], diagnostics };
+}
+function reconcile(snapshots, diagnostics) {
+  const [first, ...rest] = snapshots;
+  if (!first)
+    throw invalid3("Slack message has no snapshot.");
+  if (rest.some((s) => s.thread !== first.thread || s.speaker !== first.speaker)) {
+    throw invalid3("Conflicting thread or speaker for one Slack message; supply one authoritative snapshot.");
+  }
+  const kept = snapshots.reduce((best, candidate) => rank(candidate, best) > 0 ? candidate : best);
+  for (const snapshot of snapshots) {
+    if (snapshot === kept)
+      continue;
+    if (key(snapshot) === key(kept)) {
+      diagnostics.push({ code: "slack_duplicate_message", message: "Removed a duplicate Slack message." });
+    } else {
+      diagnostics.push({
+        code: "slack_conflicting_message",
+        message: "Kept one of conflicting Slack message snapshots (latest edit, then most reactions)."
+      });
+    }
+  }
+  return kept;
+}
+function rank(a, b) {
+  const edited = compareSlackTimestamps(a.edited ?? "0.000000", b.edited ?? "0.000000");
+  if (edited !== 0)
+    return edited;
+  const reactions = reactionTotal(a) - reactionTotal(b);
+  if (reactions !== 0)
+    return reactions;
+  return compareText(key(a), key(b));
+}
+function reactionTotal(snapshot) {
+  if (snapshot.reactions === undefined)
+    return -1;
+  return Object.values(snapshot.reactions).reduce((sum, count) => sum + count, 0);
+}
+function key(snapshot) {
+  return JSON.stringify([snapshot.content, snapshot.reactions ?? null]);
+}
+function parseSlackMessages(transcript) {
+  if (!transcript.trim())
+    return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(transcript);
+  } catch {
+    const lines = transcript.split(/\r?\n/).filter((line) => line.trim());
+    return lines.map((line, index) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        throw invalid3(`Slack transcript line ${index + 1} is not valid JSON.`);
+      }
+    });
+  }
+  if (Array.isArray(parsed))
+    return parsed;
+  if (isObject(parsed) && Array.isArray(parsed.messages))
+    return parsed.messages;
+  throw invalid3("Slack transcript must be JSONL rows, a JSON array, or a conversations.history response.");
+}
+function invalid3(message) {
+  return new NormalizationError("invalid_input", message);
+}
+
+// src/conversations/validate.ts
+var META_KEYS2 = new Set(["role", "source", "channel", "channel_name", "participants"]);
+var MESSAGE_KEYS = new Set(["id", "speaker", "content", "timestamp", "reactions"]);
+var POST_KEYS = new Set([...MESSAGE_KEYS, "replies"]);
+var FRAGMENT_KEYS = new Set(["id", "missing_root", "replies"]);
+var PARTICIPANT_KEYS = new Set(["id", "bot"]);
+var ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
+function validateConversation(value) {
+  if (!Array.isArray(value) || value.length < 1) {
+    fail2("Conversation requires leading metadata.");
+  }
+  const meta = value[0];
+  if (!isObject(meta) || meta.role !== "meta" || !nonempty(meta.source) || !nonempty(meta.channel)) {
+    fail2("Conversation requires leading meta with source and channel.");
+  }
+  exactKeys2(meta, META_KEYS2);
+  if ("channel_name" in meta && !nonempty(meta.channel_name)) {
+    fail2("Channel name must be non-empty when present.");
+  }
+  const labels = validateParticipants(meta.participants);
+  const ids = new Set;
+  for (const record of value.slice(1)) {
+    if (!isObject(record) || "role" in record) {
+      fail2("Conversation body must contain only posts, not agent roles.");
+    }
+    if ("missing_root" in record) {
+      exactKeys2(record, FRAGMENT_KEYS);
+      if (record.missing_root !== true)
+        fail2("Thread fragments must set missing_root to true.");
+      if (!("replies" in record))
+        fail2("Thread fragments require replies.");
+      claimId(record.id, ids);
+    } else {
+      exactKeys2(record, POST_KEYS);
+      validateMessage(record, ids, labels);
+    }
+    if ("replies" in record) {
+      if (!Array.isArray(record.replies) || record.replies.length === 0) {
+        fail2("Replies must be a non-empty array; omit the field for posts without replies.");
+      }
+      for (const reply of record.replies) {
+        if (!isObject(reply))
+          fail2("Replies must be objects.");
+        exactKeys2(reply, MESSAGE_KEYS);
+        validateMessage(reply, ids, labels);
+      }
+    }
+  }
+}
+function validateParticipants(value) {
+  if (!isObject(value))
+    fail2("Conversation meta requires a participants object.");
+  const ids = new Set;
+  for (const [label2, participant] of Object.entries(value)) {
+    if (!nonempty(label2))
+      fail2("Participant labels must be non-empty.");
+    if (!isObject(participant) || !nonempty(participant.id))
+      fail2("Participants must contain a non-empty id.");
+    exactKeys2(participant, PARTICIPANT_KEYS);
+    if ("bot" in participant && participant.bot !== true)
+      fail2("Participant bot flag must be true when present.");
+    if (ids.has(participant.id))
+      fail2("Participant IDs must be unique.");
+    ids.add(participant.id);
+  }
+  return new Set(Object.keys(value));
+}
+function validateMessage(record, ids, labels) {
+  claimId(record.id, ids);
+  if (typeof record.speaker !== "string" || !labels.has(record.speaker)) {
+    fail2("Message speaker must be a participant label.");
+  }
+  if ("reactions" in record)
+    validateReactions(record.reactions);
+  if (!nonempty(record.content))
+    fail2("Message content must be non-empty text.");
+  if (typeof record.timestamp !== "string" || !ISO_TIMESTAMP.test(record.timestamp) || Number.isNaN(Date.parse(record.timestamp))) {
+    fail2("Message timestamp must be a valid ISO timestamp.");
+  }
+}
+function claimId(id, ids) {
+  if (!nonempty(id) || ids.has(id)) {
+    fail2("Message IDs must be non-empty and unique within the conversation.");
+  }
+  ids.add(id);
+}
+function validateReactions(value) {
+  if (!isObject(value))
+    fail2("Reactions must map reaction names to counts.");
+  for (const [name, count] of Object.entries(value)) {
+    if (!nonempty(name))
+      fail2("Reaction names must be non-empty.");
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) {
+      fail2("Reaction count must be a non-negative safe integer.");
+    }
+  }
+}
+function nonempty(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+function exactKeys2(record, allowed) {
+  for (const key2 of Object.keys(record)) {
+    if (!allowed.has(key2))
+      fail2(`Unexpected conversation field: ${key2}`);
+  }
+}
+function fail2(message) {
+  throw new NormalizationError("invalid_input", message);
+}
+
+// src/conversations/index.ts
+function normalizeConversation(input) {
+  if (!input || typeof input !== "object" || typeof input.transcript !== "string") {
+    throw new NormalizationError("invalid_input", "Expected a conversation source, transcript string, and channel.");
+  }
+  if (input.source !== "slack") {
+    throw new NormalizationError("unknown_source", `Unsupported conversation source: ${input.source}`);
+  }
+  if (input.users !== undefined && !Array.isArray(input.users)) {
+    throw new NormalizationError("invalid_input", "Slack users must be an array.");
+  }
+  if (input.channelName !== undefined && typeof input.channelName !== "string") {
+    throw new NormalizationError("invalid_input", "Channel name must be a string.");
+  }
+  const result = normalizeSlackChannel({
+    transcript: input.transcript,
+    channel: input.channel,
+    ...input.channelName === undefined ? {} : { channelName: input.channelName },
+    ...input.users === undefined ? {} : { users: input.users }
+  });
+  validateConversation(result.records);
+  return result;
+}
+
 // src/python-cli.ts
 var PROTOCOL_VERSION = 1;
 async function main() {
@@ -4139,6 +4593,29 @@ async function main() {
   const results = [];
   for (const input of request.requests) {
     try {
+      if (isObject(input) && "conversation" in input) {
+        const request2 = input.conversation;
+        if (!isObject(request2) || typeof request2.transcript !== "string" || typeof request2.channel !== "string") {
+          throw new NormalizationError("invalid_input", "Expected a conversation source, transcript, and channel.");
+        }
+        if (request2.source !== "slack") {
+          throw new NormalizationError("unknown_source", "Unsupported conversation source.");
+        }
+        if (request2.users !== undefined && !Array.isArray(request2.users)) {
+          throw new NormalizationError("invalid_input", "Slack users must be an array.");
+        }
+        if (request2.channelName !== undefined && typeof request2.channelName !== "string") {
+          throw new NormalizationError("invalid_input", "Channel name must be a string.");
+        }
+        results.push({ ok: true, result: normalizeConversation({
+          source: request2.source,
+          transcript: request2.transcript,
+          channel: request2.channel,
+          ...request2.channelName === undefined ? {} : { channelName: request2.channelName },
+          ...request2.users === undefined ? {} : { users: request2.users }
+        }) });
+        continue;
+      }
       const result = input !== null && typeof input === "object" && "list" in input ? await listTrajectories(input.list) : input !== null && typeof input === "object" && ("source" in input) && input.source === "deepagents" ? await normalizeCheckpoint(input) : normalizeTranscript(input);
       results.push({
         ok: true,
