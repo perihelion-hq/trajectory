@@ -445,6 +445,38 @@ describe("public API", () => {
     );
   });
 
+  test("reads an Amp terminal error result as a failed result", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    toolResult.run = { status: "error", error: { message: "permission denied" } };
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "tool-1",
+          content: JSON.stringify({ message: "permission denied" }),
+          ok: false,
+        }),
+      ]),
+    );
+    // Only an error run may carry its payload in `error`, and only with a message.
+    for (const run of [
+      { status: "error" },
+      { status: "error", error: { message: "" } },
+      { status: "done", error: { message: "permission denied" } },
+    ]) {
+      toolResult.run = run;
+      expect(() =>
+        normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+      ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+    }
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 

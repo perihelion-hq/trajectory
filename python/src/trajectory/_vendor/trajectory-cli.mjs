@@ -357,7 +357,10 @@ var ampAdapter = {
           if (!TERMINAL_TOOL_STATUSES.has(block.run.status)) {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} has an unsupported status.`);
           }
-          if (!Object.hasOwn(block.run, "result")) {
+          let payload = block.run.result;
+          if (!Object.hasOwn(block.run, "result") && block.run.status === "error" && isObject(block.run.error) && nonemptyString(block.run.error.message)) {
+            payload = block.run.error;
+          } else if (!Object.hasOwn(block.run, "result")) {
             invalid(`Amp terminal tool result ${messageIndex}:${componentIndex} must contain result.`);
           }
           increment(toolResultCounts, callId);
@@ -365,7 +368,7 @@ var ampAdapter = {
           events.push({
             type: "tool_result",
             callId,
-            content: resultText(block.run.result),
+            content: resultText(payload),
             ok: block.run.status === "done",
             ...timestamp ? { timestamp } : {},
             sourceRecordId,
