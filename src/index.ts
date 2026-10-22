@@ -151,6 +151,8 @@ export function inspectAmpExecutionIdentity(stream: string): AmpExecutionIdentit
 interface AmpExecutionRecords {
   threadIds: Set<string>;
   terminal: Record<string, unknown> | undefined;
+  /** The terminal result's own token count, or null when it reports no usage or is absent. */
+  terminalTokens: number | null;
   toolCallCount: number;
   assistantCount: number;
   assistantTokens: number;
@@ -160,6 +162,7 @@ interface AmpExecutionRecords {
 function readAmpExecutionRecords(stream: string): AmpExecutionRecords {
   const threadIds = new Set<string>();
   let terminal: Record<string, unknown> | undefined = undefined;
+  let terminalTokens: number | null = null;
   let toolCallCount = 0;
   // Per-call usage, used only when the terminal result omits its own. `usage` is optional on
   // both records in Amp's stream-json schema, and current releases omit it from the result.
@@ -258,12 +261,26 @@ function readAmpExecutionRecords(stream: string): AmpExecutionRecords {
           "Amp execution stream terminal result must be the final record.",
         );
       }
+      // A present terminal is validated here, so an unfinished-stream reader refuses the same
+      // malformed result the complete-stream reader does.
+      if (
+        typeof item.subtype !== "string" ||
+        item.subtype.trim().length === 0 ||
+        typeof item.is_error !== "boolean"
+      ) {
+        throw new NormalizationError(
+          "invalid_input",
+          "Amp execution terminal status or usage is invalid.",
+        );
+      }
+      if ("usage" in item) terminalTokens = usageTokenCount(item.usage, "terminal");
       terminal = item;
     }
   }
   return {
     threadIds,
     terminal,
+    terminalTokens,
     toolCallCount,
     assistantCount,
     assistantTokens,
@@ -303,27 +320,24 @@ export function inspectAmpExecutionActivity(stream: string): AmpExecutionActivit
  * Claude-compatible wire shape a downstream Roster contract.
  */
 export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
-  const { threadIds, terminal, toolCallCount, assistantCount, assistantTokens, assistantUsageComplete } =
-    readAmpExecutionRecords(stream);
+  const {
+    threadIds,
+    terminal,
+    terminalTokens,
+    toolCallCount,
+    assistantCount,
+    assistantTokens,
+    assistantUsageComplete,
+  } = readAmpExecutionRecords(stream);
   if (threadIds.size !== 1 || terminal === undefined) {
     throw new NormalizationError(
       "invalid_input",
       "Amp execution stream must contain one thread identity and one terminal result.",
     );
   }
-  if (
-    typeof terminal.subtype !== "string" ||
-    terminal.subtype.trim().length === 0 ||
-    typeof terminal.is_error !== "boolean"
-  ) {
-    throw new NormalizationError(
-      "invalid_input",
-      "Amp execution terminal status or usage is invalid.",
-    );
-  }
   let tokenCount: number | null = null;
   if ("usage" in terminal) {
-    tokenCount = usageTokenCount(terminal.usage, "terminal");
+    tokenCount = terminalTokens;
   } else if (assistantCount > 0 && assistantUsageComplete) {
     tokenCount = assistantTokens;
   }

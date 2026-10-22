@@ -754,6 +754,9 @@ describe("public API", () => {
       `${records}\n${JSON.stringify({ ...call("3"), session_id: "T-22222222-2222-4222-8222-222222222222" })}\n`,
       JSON.stringify(call("1")),
       "",
+      // A present terminal result is validated as the strict readback validates it.
+      `${records}\n${JSON.stringify({ type: "result", session_id: threadId, usage: null })}`,
+      `${records}\n${JSON.stringify({ type: "result", session_id: threadId, subtype: "success", is_error: false, usage: null })}`,
     ]) {
       expect(() => inspectAmpExecutionActivity(refused)).toThrow(
         expect.objectContaining({ code: "invalid_input" }),
