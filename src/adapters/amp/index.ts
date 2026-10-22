@@ -275,7 +275,9 @@ export const ampAdapter: SourceAdapter = {
             invalid(`Amp tool use ${messageIndex}:${componentIndex} is malformed.`);
           }
           increment(toolCallCounts, callId);
+          // The latest call with this ID decides whether its result can be a running Task.
           if (name === "Task") asyncTaskCallIds.add(callId);
+          else asyncTaskCallIds.delete(callId);
           events.push({
             type: "tool_call",
             id: callId,

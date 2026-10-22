@@ -546,6 +546,29 @@ describe("public API", () => {
     expect(outcomes).toEqual([true, false, false]);
   });
 
+  test("judges an Amp Task result by the call that reused its ID last", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const [first, firstResult] = [exportDocument.messages[1], exportDocument.messages[2]];
+    const taskCall = first.content.find((block: { type?: string }) => block.type === "tool_use");
+    Object.assign(taskCall, { name: "Task", input: { prompt: "Inspect it." } });
+    firstResult.content[0].run = { status: "done", result: { status: "completed", output: "done" } };
+    // A later shell call reuses the Task's ID; its result is that shell's own data.
+    const reuse = structuredClone(first);
+    Object.assign(reuse, { messageId: 5, protocolMessageID: "msg-assistant-3" });
+    Object.assign(
+      reuse.content.find((block: { type?: string }) => block.type === "tool_use"),
+      { name: "shell_command", input: { command: "pwd" } },
+    );
+    const reuseResult = structuredClone(firstResult);
+    Object.assign(reuseResult, { messageId: 6, protocolMessageID: "msg-user-3" });
+    reuseResult.content[0].run = { status: "done", result: { status: "running" } };
+    exportDocument.messages.push(reuse, reuseResult);
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records.filter((record) => record.role === "tool")).toHaveLength(2);
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 

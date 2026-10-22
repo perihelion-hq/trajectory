@@ -455,6 +455,8 @@ var ampAdapter = {
           increment(toolCallCounts, callId);
           if (name === "Task")
             asyncTaskCallIds.add(callId);
+          else
+            asyncTaskCallIds.delete(callId);
           events.push({
             type: "tool_call",
             id: callId,
