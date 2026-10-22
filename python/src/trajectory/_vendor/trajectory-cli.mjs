@@ -272,6 +272,7 @@ var ampAdapter = {
     const protocolMessageIds = new Set;
     const toolCallCounts = new Map;
     const toolResultCounts = new Map;
+    const asyncTaskCallIds = new Set;
     let pendingAssistantAfter;
     for (let messageIndex = 0;messageIndex < root.messages.length; messageIndex += 1) {
       const message = root.messages[messageIndex];
@@ -344,7 +345,8 @@ var ampAdapter = {
           if (!callId || !isObject(block.run) || typeof block.run.status !== "string") {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} is malformed.`);
           }
-          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status)) {
+          const runningTask = block.run.status === "done" && asyncTaskCallIds.has(callId) && isObject(block.run.result) && block.run.result.status === "running";
+          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status) || runningTask) {
             increment(toolResultCounts, callId);
             pendingAssistantAfter = undefined;
             diagnostics.push({
@@ -449,6 +451,8 @@ var ampAdapter = {
             invalid(`Amp tool use ${messageIndex}:${componentIndex} is malformed.`);
           }
           increment(toolCallCounts, callId);
+          if (name === "Task")
+            asyncTaskCallIds.add(callId);
           events.push({
             type: "tool_call",
             id: callId,
