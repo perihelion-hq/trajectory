@@ -373,7 +373,7 @@ var ampAdapter = {
             type: "tool_result",
             callId,
             content: resultText(payload),
-            ok: block.run.status === "done",
+            ok: block.run.status === "done" && !(isObject(payload) && typeof payload.exitCode === "number" && payload.exitCode !== 0),
             ...timestamp ? { timestamp } : {},
             sourceRecordId,
             sourceSequence: messageIndex,

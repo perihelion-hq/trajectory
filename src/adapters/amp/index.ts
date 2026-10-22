@@ -167,7 +167,10 @@ export const ampAdapter: SourceAdapter = {
             type: "tool_result",
             callId,
             content: resultText(payload),
-            ok: block.run.status === "done",
+            // Amp records a shell command that exited nonzero as done, with its exitCode.
+            ok:
+              block.run.status === "done" &&
+              !(isObject(payload) && typeof payload.exitCode === "number" && payload.exitCode !== 0),
             ...(timestamp ? { timestamp } : {}),
             sourceRecordId,
             sourceSequence: messageIndex,
