@@ -2053,6 +2053,29 @@ function decodePiSessionTranscript(transcript, options) {
       }
       continue;
     }
+    const injected = injectedContext(row);
+    if (injected !== undefined) {
+      sawMessageRow = true;
+      const timestamp2 = parseTimestamp(row.timestamp) ?? (isObject(row.message) ? messageTimestamp(row.message.timestamp) : undefined);
+      if (injected) {
+        events.push({
+          type: "message",
+          role: "user",
+          content: injected,
+          inputLine: line,
+          ...timestamp2 ? { timestamp: timestamp2 } : {},
+          ...typeof row.id === "string" && row.id ? { sourceRecordId: row.id } : { sourceOffset: byteOffset, sourceAnchorKind: "byte" },
+          componentIndex: 0
+        });
+      } else {
+        diagnostics.push({
+          code: "injected_context_dropped",
+          message: "pi context entry has no text content to preserve",
+          inputLine: line
+        });
+      }
+      continue;
+    }
     if (row.type !== "message" || !isObject(row.message))
       continue;
     sawMessageRow = true;
@@ -2157,6 +2180,70 @@ function decodePiSessionTranscript(transcript, options) {
     },
     diagnostics
   };
+}
+var COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+
+<summary>
+`;
+var COMPACTION_SUMMARY_SUFFIX = `
+</summary>`;
+var BRANCH_SUMMARY_PREFIX = `The following is a summary of a branch that this conversation came back from:
+
+<summary>
+`;
+var BRANCH_SUMMARY_SUFFIX = "</summary>";
+function injectedContext(row) {
+  if (row.type === "compaction")
+    return summaryText(row.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (row.type === "branch_summary") {
+    return row.summary ? summaryText(row.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX) : undefined;
+  }
+  if (row.type === "custom_message")
+    return blocksText(row.content);
+  if (row.type !== "message" || !isObject(row.message))
+    return;
+  const message = row.message;
+  if (message.role === "compactionSummary")
+    return summaryText(message.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (message.role === "branchSummary")
+    return summaryText(message.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX);
+  if (message.role === "custom")
+    return blocksText(message.content);
+  if (message.role === "bashExecution") {
+    if (!isBashExecution(message))
+      return "";
+    return message.excludeFromContext ? undefined : bashExecutionText(message);
+  }
+  return;
+}
+function summaryText(summary, prefix, suffix) {
+  return typeof summary === "string" ? prefix + summary + suffix : "";
+}
+function isBashExecution(message) {
+  const optional = (value, type) => value === undefined || typeof value === type;
+  return typeof message.command === "string" && typeof message.output === "string" && typeof message.cancelled === "boolean" && typeof message.truncated === "boolean" && (message.exitCode === null || optional(message.exitCode, "number")) && optional(message.fullOutputPath, "string") && optional(message.excludeFromContext, "boolean");
+}
+function bashExecutionText(message) {
+  let text = `Ran \`${message.command}\`
+`;
+  text += message.output ? `\`\`\`
+${message.output}
+\`\`\`` : "(no output)";
+  if (message.cancelled) {
+    text += `
+
+(command cancelled)`;
+  } else if (message.exitCode !== null && message.exitCode !== undefined && message.exitCode !== 0) {
+    text += `
+
+Command exited with code ${message.exitCode}`;
+  }
+  if (message.truncated && message.fullOutputPath) {
+    text += `
+
+[Output truncated. Full output: ${message.fullOutputPath}]`;
+  }
+  return text;
 }
 function messageTimestamp(value) {
   return parseTimestamp(value);
