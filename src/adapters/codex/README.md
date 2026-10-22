@@ -15,9 +15,10 @@ uploads via `sourceContext.baseByteOffset`. Canonical normalization requires a
 resolved session id: include the `session_meta` row or pass
 `sourceContext.groupId`.
 
-System-injected user content (`<environment_context>`, `<user_instructions>`,
-`<permissions instructions>`, `<turn_context>`) is dropped with an
-`injected_context_dropped` diagnostic.
+User-role messages are kept verbatim, including harness-injected context such
+as `<environment_context>`, `<user_instructions>`, `<permissions instructions>`
+and `<turn_context>`: Codex sends them to the model as user turns, and a
+prefix match cannot tell them from a user message that starts the same way.
 
 ## Listing
 

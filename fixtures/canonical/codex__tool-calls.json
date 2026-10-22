@@ -24,6 +24,27 @@
     {
       "source_type": "codex",
       "source_group_id": "s1",
+      "stable_source_record_id": "e26c7a47f771c0b354bda25bd68c5bd08a277d35945e4717014861c07f81f756",
+      "source_identity_kind": "location",
+      "source_order_id": "1|2026-03-30T05:38:34.500Z|00000000000000000000|e26c7a47f771c0b354bda25bd68c5bd08a277d35945e4717014861c07f81f756",
+      "component_index": 0,
+      "record_type": "user",
+      "record_id": "231c02d659a0a8dcd640736a6f812555185f6f1b995e4d52a9f831c1b173f436",
+      "record_hash": "f3c3e22b1f6c20143eabbdbf4fb5696a3946ab98003d27da1b80f7cb7b18491f",
+      "content_hash": "a76d941bc0b9e32c408f0c2b19b96c9bdf0f28c1d789179f2c095e9b54bcc40c",
+      "source_timestamp": "2026-03-30T05:38:34.500Z",
+      "record_timestamp": "2026-03-30T05:38:34.500Z",
+      "content": "<environment_context>metadata</environment_context>",
+      "tool_call_id": null,
+      "tool_name": null,
+      "tool_arguments_json": null,
+      "tool_result_json": null,
+      "tool_result_ok": null,
+      "record_json": "{\"content\":\"<environment_context>metadata</environment_context>\",\"role\":\"user\",\"timestamp\":\"2026-03-30T05:38:34.500Z\"}"
+    },
+    {
+      "source_type": "codex",
+      "source_group_id": "s1",
       "stable_source_record_id": "b606ac9f9730c52ed77281ab6ce20b26d3a6c50b76a2cca19b46c5acd5db5896",
       "source_identity_kind": "location",
       "source_order_id": "1|2026-03-30T05:38:34.725Z|00000000000000000000|b606ac9f9730c52ed77281ab6ce20b26d3a6c50b76a2cca19b46c5acd5db5896",
@@ -211,13 +232,7 @@
       "record_json": "{\"content\":\"Created one focused commit.\",\"role\":\"assistant\",\"timestamp\":\"2026-03-30T05:40:43.000Z\"}"
     }
   ],
-  "diagnostics": [
-    {
-      "code": "injected_context_dropped",
-      "message": "Dropped Codex system-injected user content on line 3.",
-      "inputLine": 3
-    }
-  ],
+  "diagnostics": [],
   "normalizer_version": "0.2.0",
   "canonical_schema_version": 3,
   "config": {

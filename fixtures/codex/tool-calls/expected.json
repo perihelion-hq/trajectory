@@ -9,6 +9,11 @@
     },
     {
       "role": "user",
+      "content": "<environment_context>metadata</environment_context>",
+      "timestamp": "2026-03-30T05:38:34.500Z"
+    },
+    {
+      "role": "user",
       "content": "create one focused commit",
       "timestamp": "2026-03-30T05:38:34.725Z"
     },
@@ -77,11 +82,5 @@
       "timestamp": "2026-03-30T05:40:43.000Z"
     }
   ],
-  "diagnostics": [
-    {
-      "code": "injected_context_dropped",
-      "message": "Dropped Codex system-injected user content on line 3.",
-      "inputLine": 3
-    }
-  ]
+  "diagnostics": []
 }
