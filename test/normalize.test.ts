@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpExecutionActivity,
   inspectAmpExecutionIdentity,
   inspectAmpExecutionStream,
   inspectAmpModelAttestation,
@@ -592,6 +593,44 @@ describe("public API", () => {
       toolCallCount: 1,
       error: null,
     });
+  });
+
+  test("reads what a killed Amp execution already did, and nothing past its complete records", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const call = (id: string) => ({
+      type: "assistant",
+      session_id: threadId,
+      message: { content: [{ type: "text", text: "working" }, { type: "tool_use", id }] },
+    });
+    const records = [{ type: "system", subtype: "init", session_id: threadId }, call("1"), call("2")]
+      .map((record) => JSON.stringify(record))
+      .join("\n");
+    // Killed at the deadline: no terminal result, and the last record cut off mid-line.
+    const killed = `${records}\n${JSON.stringify(call("3")).slice(0, 40)}`;
+
+    expect(inspectAmpExecutionActivity(killed)).toEqual({ threadId, toolCallCount: 2 });
+    expect(inspectAmpExecutionActivity(`${records}\n`)).toEqual({ threadId, toolCallCount: 2 });
+    // A complete final record without its newline still counts.
+    expect(inspectAmpExecutionActivity(`${records}\n${JSON.stringify(call("3"))}`)).toEqual({
+      threadId,
+      toolCallCount: 3,
+    });
+    // The strict readback still needs the terminal result.
+    expect(() => inspectAmpExecutionStream(killed)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+    // Only the unterminated tail is set aside: a malformed complete record, another thread, or a
+    // stream that does not begin with its init record is refused.
+    for (const refused of [
+      `${records}\n{malformed\n`,
+      `${records}\n${JSON.stringify({ ...call("3"), session_id: "T-22222222-2222-4222-8222-222222222222" })}\n`,
+      JSON.stringify(call("1")),
+      "",
+    ]) {
+      expect(() => inspectAmpExecutionActivity(refused)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
   });
 
   test("reads an Amp terminal error's own message, and only an error's", () => {

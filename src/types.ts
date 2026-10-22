@@ -234,6 +234,14 @@ export interface AmpExecutionStream {
   error: string | null;
 }
 
+/** What a possibly unfinished Amp --stream-json execution observably did. */
+export interface AmpExecutionActivity {
+  /** The one native thread identifier carried by every applicable stream record. */
+  threadId: string;
+  /** Number of assistant tool-use blocks in the stream's complete records. */
+  toolCallCount: number;
+}
+
 /** Best-effort native identity recovered for cleanup from an Amp execution stream. */
 export interface AmpExecutionIdentity {
   /** The sole non-empty native identity observed, or null when ownership is ambiguous. */
