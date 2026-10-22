@@ -104,6 +104,7 @@ export type DiagnosticCode =
   | "sidechain_record_dropped"
   | "tool_call_id_synthesized"
   | "duplicate_tool_call_id"
+  | "tool_call_id_reused"
   | "orphan_tool_result"
   | "duplicate_tool_result"
   | "unknown_tool_name"
@@ -211,6 +212,11 @@ export interface AmpModelAttestation {
   servedModels: string[];
   /** False when the Amp adapter observes any incomplete-transcript condition. */
   complete: boolean;
+  /**
+   * True when the export's final assistant message is a cancelled turn that reported no usage and
+   * completed no block: the placeholder an interrupted run leaves. It is counted, unattested.
+   */
+  interruptedTail: boolean;
   /** The Amp adapter's complete diagnostic set for the export. */
   diagnostics: Diagnostic[];
 }
@@ -229,6 +235,63 @@ export interface AmpExecutionStream {
   tokenCount: number | null;
   /** Number of assistant tool-use blocks observed in the stream. */
   toolCallCount: number;
+  /** The terminal result's own error message when it reports an error, otherwise null. */
+  error: string | null;
+}
+
+/** What a possibly unfinished Amp --stream-json execution observably did. */
+export interface AmpExecutionActivity {
+  /** The one native thread identifier carried by every applicable stream record. */
+  threadId: string;
+  /** Number of assistant tool-use blocks in the stream's complete records. */
+  toolCallCount: number;
+}
+
+/**
+ * What one Codex `exec --json` run observably did, whether it finished or was stopped. The stream
+ * never names the requested model; each started turn ran on it unless a reroute names another.
+ */
+export interface CodexExecutionStream {
+  /** The sole non-empty `thread.started` identity, or null when absent or ambiguous. */
+  threadId: string | null;
+  /** Number of `turn.started` events. */
+  turnCount: number;
+  /** Each provider reroute's target model, in stream order. */
+  reroutedModels: string[];
+  /** Distinct identified tool items started or completed. */
+  toolCallCount: number;
+  /** Sorted ids of completed tool items whose every completion reported success. */
+  succeededCallIds: string[];
+  /** Sorted ids of completed tool items any completion of which reported failure. */
+  failedCallIds: string[];
+  /** Input and output tokens over every turn, or null unless every turn completed with usage. */
+  tokenCount: number | null;
+  /** The last `turn.failed` or `error` event's message; the caller classifies it. */
+  terminalError: string | null;
+}
+
+/** What one Claude Code `stream-json` run's main session observably did. */
+export interface ClaudeCodeExecutionStream {
+  /** The first `system` `init` record's session, or null when absent. */
+  sessionId: string | null;
+  /** Unique assistant models of the main session in first-served order, without the placeholder. */
+  servedModels: string[];
+  /** Distinct main-session tool-use ids. */
+  toolCallCount: number;
+  /** Sorted tool-use ids whose main-session results all succeeded. */
+  succeededCallIds: string[];
+  /** Sorted tool-use ids with a main-session result reporting an error. */
+  failedCallIds: string[];
+  /** The last main-session result's `modelUsage` total, or null when absent or malformed. */
+  tokenCount: number | null;
+  /** The last main-session result when it reports an error: its status and its own text. */
+  terminalFailure: { apiErrorStatus: number | null; text: string | null } | null;
+}
+
+/** The MCP servers one Amp --stream-json execution's `system` `init` record reports. */
+export interface AmpExecutionInit {
+  /** Each named server with its reported status, or null when no init record names a list. */
+  mcpServers: { name: string; status: string | null }[] | null;
 }
 
 /** Best-effort native identity recovered for cleanup from an Amp execution stream. */

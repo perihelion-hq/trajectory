@@ -15,11 +15,17 @@ unlike OpenClaw, OMP writes no placeholder mirror model, so nothing is masked.
 OMP adds its own entry types on top of the shared format — `session_init`,
 `title`, `service_tier_change`, `mode_change`, `ttsr_injection`, and
 `custom`/`custom_message` rows (the last carry extension-injected content and
-tool-execution side data). All non-`message` entry types are ignored, matching
-OMP's own transcript readers, and message roles other than
-`user`/`assistant`/`toolResult` (for example `bashExecution` rows written for
-user-typed `!` commands) are skipped. The shared `model_change` and
-`thinking_level_change` lifecycle rows are ignored for the same reason.
+tool-execution side data). The shared decoder handles context entries as for
+pi: entries pi puts into the model context without a user/assistant/tool role
+(`compaction`, `branch_summary`, `custom_message`, and the `compactionSummary`,
+`branchSummary`, `custom`, and `bashExecution` message roles, the last written
+for user-typed `!` commands) become user messages carrying the exact text pi's
+`convertToLlm` sends; `!!` commands, which pi keeps out of the context, are
+skipped, and such an entry with no text is reported as
+`injected_context_dropped`. A compaction's retained tail repeats earlier entries
+and is not re-emitted. Other lifecycle entries, OMP's own entry types, and the
+shared `model_change` and `thinking_level_change` rows carry no context and are
+ignored.
 Entries are decoded in file order; a session whose tree was branched in place
 contributes every recorded branch, not just the active path. Failed tool
 results (`isError`) gain an `Error:` prefix, and malformed JSONL lines are

@@ -120,6 +120,8 @@ export interface DecodedSession {
 export interface DecodedAssistantModelObservation {
   sourceRecordId: string;
   model?: string;
+  /** The export's final message, cancelled before reporting usage or completing a block. */
+  interruptedPlaceholder?: true;
 }
 
 export interface SourceAdapter {

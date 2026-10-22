@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   DEFAULT_NORMALIZATION_BOUNDS,
   DEFAULT_NORMALIZATION_FILTERS,
+  inspectAmpExecutionActivity,
   inspectAmpExecutionIdentity,
   inspectAmpExecutionStream,
   inspectAmpModelAttestation,
@@ -445,6 +446,129 @@ describe("public API", () => {
     );
   });
 
+  test("reads an Amp terminal error result as a failed result", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    toolResult.run = { status: "error", error: { message: "permission denied" } };
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "tool-1",
+          content: JSON.stringify({ message: "permission denied" }),
+          ok: false,
+        }),
+      ]),
+    );
+    // Only an error run may carry its payload in `error`, and only with a message.
+    for (const run of [
+      { status: "error" },
+      { status: "error", error: { message: "" } },
+      { status: "done", error: { message: "permission denied" } },
+    ]) {
+      toolResult.run = run;
+      expect(() =>
+        normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+      ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+    }
+  });
+
+  test("reads a steered, cancelled Amp tool result as a failed result", () => {
+    const reason =
+      "Wait interrupted by a steering message. The underlying work was not stopped. You can call this wait again if needed.";
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    toolResult.run = { reason, status: "cancelled" };
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "tool", tool_call_id: "tool-1", content: reason, ok: false }),
+      ]),
+    );
+    for (const run of [{ status: "cancelled" }, { status: "cancelled", reason: "" }]) {
+      toolResult.run = run;
+      expect(() =>
+        normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+      ).toThrow(expect.objectContaining({ code: "invalid_input" }));
+    }
+  });
+
+  test("defers an Amp async Task result while its subagent is still running", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const blocks = exportDocument.messages.flatMap(
+      (message: { content?: unknown[] }) => message.content ?? [],
+    );
+    const call = blocks.find((block: { type?: string }) => block.type === "tool_use");
+    const toolResult = blocks.find((block: { type?: string }) => block.type === "tool_result");
+    Object.assign(call, { name: "Task", input: { prompt: "Inspect it." } });
+    toolResult.run = { status: "done", result: { status: "running" } };
+
+    const running = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(running.records.some((record) => record.role === "tool")).toBe(false);
+    expect(running.records.some((record) => record.role === "assistant")).toBe(true);
+    expect(running.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "incomplete_transcript" })]),
+    );
+
+    toolResult.run = { status: "done", result: { status: "completed", output: "done" } };
+    const settled = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(settled.records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ role: "tool", tool_call_id: "tool-1", ok: true })]),
+    );
+
+    // Only the Task tool's result carries the subagent's state; another tool's data is kept.
+    Object.assign(call, { name: "shell_command", input: { command: "pwd" } });
+    toolResult.run = { status: "done", result: { status: "running" } };
+    const other = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    expect(other.records.some((record) => record.role === "tool")).toBe(true);
+  });
+
+  test("reads a done Amp shell result with a nonzero exit code as failed", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const toolResult = exportDocument.messages
+      .flatMap((message: { content?: unknown[] }) => message.content ?? [])
+      .find((block: { type?: string }) => block.type === "tool_result");
+    const outcomes = [0, 1, 128].map((exitCode) => {
+      toolResult.run = { status: "done", result: { output: "out", exitCode } };
+      const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+      return result.records.find((record) => record.role === "tool")?.ok;
+    });
+
+    expect(outcomes).toEqual([true, false, false]);
+  });
+
+  test("judges an Amp Task result by the call that reused its ID last", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const [first, firstResult] = [exportDocument.messages[1], exportDocument.messages[2]];
+    const taskCall = first.content.find((block: { type?: string }) => block.type === "tool_use");
+    Object.assign(taskCall, { name: "Task", input: { prompt: "Inspect it." } });
+    firstResult.content[0].run = { status: "done", result: { status: "completed", output: "done" } };
+    // A later shell call reuses the Task's ID; its result is that shell's own data.
+    const reuse = structuredClone(first);
+    Object.assign(reuse, { messageId: 5, protocolMessageID: "msg-assistant-3" });
+    Object.assign(
+      reuse.content.find((block: { type?: string }) => block.type === "tool_use"),
+      { name: "shell_command", input: { command: "pwd" } },
+    );
+    const reuseResult = structuredClone(firstResult);
+    Object.assign(reuseResult, { messageId: 6, protocolMessageID: "msg-user-3" });
+    reuseResult.content[0].run = { status: "done", result: { status: "running" } };
+    exportDocument.messages.push(reuse, reuseResult);
+
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+
+    expect(result.records.filter((record) => record.role === "tool")).toHaveLength(2);
+  });
+
   test("attests each Amp assistant source message exactly once", () => {
     const transcript = fixtureText("amp/orb-thread-export", "input.json");
 
@@ -454,6 +578,7 @@ describe("public API", () => {
       attestedMessageCount: 2,
       servedModels: ["example/model"],
       complete: true,
+      interruptedTail: false,
       diagnostics: [
         {
           code: "noise_record_dropped",
@@ -462,6 +587,41 @@ describe("public API", () => {
         },
       ],
     });
+  });
+
+  test("marks a stopped Amp run's final cancelled placeholder turn", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const placeholder = {
+      role: "assistant",
+      messageId: 5,
+      protocolMessageID: "msg-assistant-3",
+      protocolMessageVersion: 0,
+      state: { type: "cancelled" },
+      content: [{ type: "text", text: "Checking", blockState: "streaming", startTime: 1787392806000 }],
+    };
+    exportDocument.messages.push(placeholder);
+
+    const stopped = inspectAmpModelAttestation(JSON.stringify(exportDocument));
+    expect(stopped).toMatchObject({
+      assistantMessageCount: 3,
+      attestedMessageCount: 2,
+      servedModels: ["example/model"],
+      interruptedTail: true,
+    });
+    expect(() =>
+      normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) }),
+    ).not.toThrow();
+
+    // A cancelled turn that reported usage, or one that is not last, is not the placeholder.
+    const reported = structuredClone(exportDocument);
+    reported.messages.at(-1).usage = { model: "example/model", timestamp: "2026-08-22T10:00:06.000Z" };
+    expect(inspectAmpModelAttestation(JSON.stringify(reported)).interruptedTail).toBe(false);
+    exportDocument.messages.push({
+      ...structuredClone(exportDocument.messages[0]),
+      messageId: 6,
+      protocolMessageID: "msg-user-3",
+    });
+    expect(inspectAmpModelAttestation(JSON.stringify(exportDocument)).interruptedTail).toBe(false);
   });
 
   test("keeps mixed and missing Amp models visible without a meta fallback", () => {
@@ -477,6 +637,7 @@ describe("public API", () => {
       attestedMessageCount: 1,
       servedModels: ["z/model"],
       complete: true,
+      interruptedTail: false,
       diagnostics: [
         {
           code: "noise_record_dropped",
@@ -558,7 +719,70 @@ describe("public API", () => {
       successful: true,
       tokenCount: 26,
       toolCallCount: 1,
+      error: null,
     });
+  });
+
+  test("reads what a killed Amp execution already did, and nothing past its complete records", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const call = (id: string) => ({
+      type: "assistant",
+      session_id: threadId,
+      message: { content: [{ type: "text", text: "working" }, { type: "tool_use", id }] },
+    });
+    const records = [{ type: "system", subtype: "init", session_id: threadId }, call("1"), call("2")]
+      .map((record) => JSON.stringify(record))
+      .join("\n");
+    // Killed at the deadline: no terminal result, and the last record cut off mid-line.
+    const killed = `${records}\n${JSON.stringify(call("3")).slice(0, 40)}`;
+
+    expect(inspectAmpExecutionActivity(killed)).toEqual({ threadId, toolCallCount: 2 });
+    expect(inspectAmpExecutionActivity(`${records}\n`)).toEqual({ threadId, toolCallCount: 2 });
+    // A complete final record without its newline still counts.
+    expect(inspectAmpExecutionActivity(`${records}\n${JSON.stringify(call("3"))}`)).toEqual({
+      threadId,
+      toolCallCount: 3,
+    });
+    // The strict readback still needs the terminal result.
+    expect(() => inspectAmpExecutionStream(killed)).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+    // Only the unterminated tail is set aside: a malformed complete record, another thread, or a
+    // stream that does not begin with its init record is refused.
+    for (const refused of [
+      `${records}\n{malformed\n`,
+      `${records}\n${JSON.stringify({ ...call("3"), session_id: "T-22222222-2222-4222-8222-222222222222" })}\n`,
+      JSON.stringify(call("1")),
+      "",
+      // A present terminal result is validated as the strict readback validates it.
+      `${records}\n${JSON.stringify({ type: "result", session_id: threadId, usage: null })}`,
+      `${records}\n${JSON.stringify({ type: "result", session_id: threadId, subtype: "success", is_error: false, usage: null })}`,
+    ]) {
+      expect(() => inspectAmpExecutionActivity(refused)).toThrow(
+        expect.objectContaining({ code: "invalid_input" }),
+      );
+    }
+  });
+
+  test("reads an Amp terminal error's own message, and only an error's", () => {
+    const threadId = "T-11111111-1111-4111-8111-111111111111";
+    const init = { type: "system", subtype: "init", session_id: threadId };
+    // Amp CLI 0.0.1792310430 refused a run this way and exited 0.
+    const failed = {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      num_turns: 0,
+      error: "Low Credit Balance Your Amp credit balance is low.",
+      session_id: threadId,
+    };
+    const read = (result: Record<string, unknown>) =>
+      inspectAmpExecutionStream([init, result].map((record) => JSON.stringify(record)).join("\n"));
+
+    expect(read(failed)).toMatchObject({ successful: false, error: failed.error });
+    expect(read({ ...failed, error: "  " }).error).toBeNull();
+    expect(read({ ...failed, error: 42 }).error).toBeNull();
+    expect(read({ ...failed, is_error: false, subtype: "success" }).error).toBeNull();
   });
 
   test("rejects malformed identities inside an otherwise complete Amp execution stream", () => {
@@ -737,6 +961,7 @@ describe("public API", () => {
         successful: true,
         tokenCount,
         toolCallCount: 1,
+        error: null,
       });
     }
   });
@@ -1030,6 +1255,45 @@ describe("public API", () => {
         expect.objectContaining({ code: "invalid_input" }),
       );
     }
+  });
+
+  test("distinguishes completed tool-call ID reuse from an overlapping duplicate", () => {
+    const row = (payload: Record<string, unknown>) =>
+      JSON.stringify({ timestamp: "2026-03-30T05:38:34.500Z", type: "response_item", payload });
+    const user = row({ type: "message", role: "user", content: [{ type: "input_text", text: "go" }] });
+    const call = row({ type: "function_call", name: "shell", call_id: "call_A", arguments: "{}" });
+    const output = (text: string) => row({ type: "function_call_output", call_id: "call_A", output: text });
+    const assistant = row({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "done" }],
+    });
+    const codes = (lines: string[]) =>
+      normalizeTranscript({ source: "codex", transcript: lines.join("\n") }).diagnostics.map(
+        (diagnostic) => diagnostic.code,
+      );
+
+    const reused = normalizeTranscript({
+      source: "codex",
+      transcript: [user, call, output("first"), call, output("second"), assistant].join("\n"),
+    });
+    expect(reused.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(["tool_call_id_reused"]);
+    expect(
+      reused.records.flatMap((record) =>
+        record.role === "tool" ? [[record.tool_call_id, record.content]] : [],
+      ),
+    ).toEqual([
+      ["call_A", "first"],
+      ["call_A__2", "second"],
+    ]);
+
+    // A second call while the first is unanswered, or after a stray result, stays a duplicate.
+    expect(codes([user, call, call, output("first"), output("second"), assistant])).toContain(
+      "duplicate_tool_call_id",
+    );
+    expect(codes([user, output("stray"), call, output("first"), call, output("second"), assistant])).toContain(
+      "duplicate_tool_call_id",
+    );
   });
 
   test("reports every duplicate-ID Amp tool call without a result", () => {

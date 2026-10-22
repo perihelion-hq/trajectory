@@ -218,14 +218,18 @@ transcript content, tool payloads, paths, or identifiers:
 - The corpus exercised the v3 `{type:"session"}` header (`cwd`, no
   `git_branch`) and OMP-only entry types (`session_init`, `title`,
   `service_tier_change`, `mode_change`, `ttsr_injection`, and
-  `custom`/`custom_message` rows), all silently dropped by the shared
-  `type !== "message"` filter. Message roles were `user`, `assistant`, and
-  `toolResult`; content blocks were `text`, `thinking`, and `toolCall`.
+  `custom`/`custom_message` rows). At the time of that run, all of them were
+  silently dropped by the shared `type !== "message"` filter. The shared decoder
+  now keeps `custom_message` rows as user context (see `src/adapters/omp/README.md`)
+  and still ignores the other OMP-only types. Message roles were `user`,
+  `assistant`, and `toolResult`; content blocks were `text`, `thinking`, and
+  `toolCall`.
 
 Sanitized synthetic fixtures cover the happy path (reasoning, linked tool
 calls and results, model metadata) and cleanup (malformed line, orphan tool
-result, failed/error result, skipped `bashExecution` role, image block,
-OMP-only dropped entry types). No real transcript content was retained.
+result, failed/error result, a `bashExecution` role and a `custom_message` kept
+as user context, image block, OMP-only dropped entry types). No real transcript
+content was retained.
 
 ## Deep Agents SDK checkpoints
 

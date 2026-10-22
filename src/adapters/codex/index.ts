@@ -12,13 +12,6 @@ import {
   parseTimestamp,
 } from "../shared.js";
 
-const INJECTED_PREFIXES = [
-  "<environment_context>",
-  "<user_instructions>",
-  "<permissions instructions>",
-  "<turn_context>",
-];
-
 export const codexAdapter: SourceAdapter = {
   source: "codex",
 
@@ -99,22 +92,13 @@ export const codexAdapter: SourceAdapter = {
             ...(timestamp ? { timestamp } : {}),
           });
         } else if (role === "user") {
-          const head = content.trimStart();
-          if (INJECTED_PREFIXES.some((prefix) => head.startsWith(prefix))) {
-            diagnostics.push({
-              code: "injected_context_dropped",
-              message: `Dropped Codex system-injected user content on line ${line}.`,
-              inputLine: line,
-            });
-          } else {
-            emit({
-              type: "message",
-              role: "user",
-              content,
-              inputLine: line,
-              ...(timestamp ? { timestamp } : {}),
-            });
-          }
+          emit({
+            type: "message",
+            role: "user",
+            content,
+            inputLine: line,
+            ...(timestamp ? { timestamp } : {}),
+          });
         } else if (role === "assistant") {
           emit({
             type: "message",

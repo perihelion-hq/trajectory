@@ -7,8 +7,15 @@
  * natively; OpenClaw embeds the same SessionManager and adds its own
  * conventions on top.
  *
- * Compaction, custom, and other lifecycle entry types are ignored, matching
- * the format's own transcript readers. Failed tool results (`isError`) gain an
+ * Entries that pi puts into the model context without a user/assistant/tool
+ * role (`compaction`, `branch_summary`, `custom_message`, and the
+ * `compactionSummary`, `branchSummary`, `custom`, and `bashExecution` message
+ * roles) become user messages carrying the exact text pi's `convertToLlm`
+ * sends. A `compaction.retainedTail` repeats earlier entries and is not
+ * re-emitted. System prompt and tool declarations (`system` messages and
+ * `compaction.systemMessage`) are the harness configuration, not session turns,
+ * and are deliberately not emitted. `custom` extension state, `usage` rows, and
+ * other lifecycle entries carry no context and are ignored. Failed tool results (`isError`) gain an
  * `Error:` prefix, and malformed JSONL lines are recoverable diagnostics — the
  * upstream session-file repair drops such lines. Wrapper entry ids provide
  * native record identity; rows without ids anchor to the append-only byte
@@ -59,9 +66,33 @@ export function decodePiSessionTranscript(
       continue;
     }
 
-    // Compaction, custom, and other lifecycle entries summarize or annotate
-    // existing context; the format's own transcript readers also decode only
-    // `type: "message"` rows.
+    const injected = injectedContext(row);
+    if (injected !== undefined) {
+      sawMessageRow = true;
+      const timestamp =
+        parseTimestamp(row.timestamp) ??
+        (isObject(row.message) ? messageTimestamp(row.message.timestamp) : undefined);
+      if (injected) {
+        events.push({
+          type: "message",
+          role: "user",
+          content: injected,
+          inputLine: line,
+          ...(timestamp ? { timestamp } : {}),
+          ...(typeof row.id === "string" && row.id
+            ? { sourceRecordId: row.id }
+            : { sourceOffset: byteOffset, sourceAnchorKind: "byte" }),
+          componentIndex: 0,
+        });
+      } else {
+        diagnostics.push({
+          code: "injected_context_dropped",
+          message: "pi context entry has no text content to preserve",
+          inputLine: line,
+        });
+      }
+      continue;
+    }
     if (row.type !== "message" || !isObject(row.message)) continue;
     sawMessageRow = true;
     const message = row.message;
@@ -186,6 +217,82 @@ export function decodePiSessionTranscript(
     },
     diagnostics,
   };
+}
+
+// pi-coding-agent `core/messages.js` convertToLlm text (unchanged 0.84.4 to 0.86.0).
+const COMPACTION_SUMMARY_PREFIX =
+  "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
+const COMPACTION_SUMMARY_SUFFIX = "\n</summary>";
+const BRANCH_SUMMARY_PREFIX =
+  "The following is a summary of a branch that this conversation came back from:\n\n<summary>\n";
+const BRANCH_SUMMARY_SUFFIX = "</summary>";
+
+/**
+ * The user-message text pi sends the model for a context entry that has no
+ * user/assistant/tool role, `""` when such an entry has no text to preserve,
+ * or `undefined` for rows that are not injected context.
+ */
+function injectedContext(row: Record<string, unknown>): string | undefined {
+  if (row.type === "compaction") return summaryText(row.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (row.type === "branch_summary") {
+    // pi sends a branch summary only when it is non-empty (sessionEntryToContextMessages).
+    return row.summary ? summaryText(row.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX) : undefined;
+  }
+  if (row.type === "custom_message") return blocksText(row.content);
+  if (row.type !== "message" || !isObject(row.message)) return undefined;
+  const message = row.message;
+  if (message.role === "compactionSummary") return summaryText(message.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (message.role === "branchSummary") return summaryText(message.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX);
+  if (message.role === "custom") return blocksText(message.content);
+  if (message.role === "bashExecution") {
+    // pi's BashExecutionMessage fields; any other shape cannot be rendered as pi rendered it.
+    if (!isBashExecution(message)) return "";
+    // `!!` commands are excluded from the model context by pi itself.
+    return message.excludeFromContext ? undefined : bashExecutionText(message);
+  }
+  return undefined;
+}
+
+function summaryText(summary: unknown, prefix: string, suffix: string): string {
+  return typeof summary === "string" ? prefix + summary + suffix : "";
+}
+
+interface BashExecution {
+  command: string;
+  output: string;
+  exitCode?: number | null;
+  cancelled: boolean;
+  truncated: boolean;
+  fullOutputPath?: string;
+  excludeFromContext?: boolean;
+}
+
+function isBashExecution(message: Record<string, unknown>): message is Record<string, unknown> & BashExecution {
+  const optional = (value: unknown, type: string): boolean => value === undefined || typeof value === type;
+  return (
+    typeof message.command === "string" &&
+    typeof message.output === "string" &&
+    typeof message.cancelled === "boolean" &&
+    typeof message.truncated === "boolean" &&
+    (message.exitCode === null || optional(message.exitCode, "number")) &&
+    optional(message.fullOutputPath, "string") &&
+    optional(message.excludeFromContext, "boolean")
+  );
+}
+
+// pi-coding-agent core/messages.js bashExecutionToText, over validated fields.
+function bashExecutionText(message: BashExecution): string {
+  let text = `Ran \`${message.command}\`\n`;
+  text += message.output ? `\`\`\`\n${message.output}\n\`\`\`` : "(no output)";
+  if (message.cancelled) {
+    text += "\n\n(command cancelled)";
+  } else if (message.exitCode !== null && message.exitCode !== undefined && message.exitCode !== 0) {
+    text += `\n\nCommand exited with code ${message.exitCode}`;
+  }
+  if (message.truncated && message.fullOutputPath) {
+    text += `\n\n[Output truncated. Full output: ${message.fullOutputPath}]`;
+  }
+  return text;
 }
 
 /**

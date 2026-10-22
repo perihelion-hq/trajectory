@@ -12,6 +12,11 @@
       "timestamp": "2026-07-24T07:00:01.000Z"
     },
     {
+      "role": "user",
+      "content": "Extension-injected reminder.",
+      "timestamp": "2026-07-24T07:00:02.000Z"
+    },
+    {
       "role": "assistant",
       "content": null,
       "tool_calls": [
@@ -31,6 +36,11 @@
       "timestamp": "2026-07-24T07:00:04.000Z"
     },
     {
+      "role": "user",
+      "content": "Ran `ls`\n```\nnotes.md\n\n```",
+      "timestamp": "2026-07-24T07:00:05.000Z"
+    },
+    {
       "role": "assistant",
       "content": "I could not find the screenshot; could you re-attach it?",
       "timestamp": "2026-07-24T07:00:06.000Z"
@@ -45,7 +55,7 @@
     {
       "code": "orphan_tool_result",
       "message": "Dropped a tool result without a preceding call for \"toolu_pi_gone\".",
-      "recordIndex": 5,
+      "recordIndex": 7,
       "inputLine": 10
     }
   ]

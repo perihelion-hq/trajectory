@@ -25,6 +25,7 @@ import {
 } from "./core.js";
 import type { DecodedSession, SourceAdapter } from "./internal.js";
 import type {
+  AmpExecutionActivity,
   AmpExecutionIdentity,
   AmpExecutionStream,
   AmpModelAttestation,
@@ -117,6 +118,7 @@ export function inspectAmpModelAttestation(transcript: string): AmpModelAttestat
       (observation) => observation.model !== undefined,
     ).length,
     servedModels,
+    interruptedTail: observations.at(-1)?.interruptedPlaceholder === true,
     complete: !decoded.diagnostics.some(
       (diagnostic) => diagnostic.code === "incomplete_transcript",
     ),
@@ -145,13 +147,22 @@ export function inspectAmpExecutionIdentity(stream: string): AmpExecutionIdentit
   return { threadId: threadIds.size === 1 ? [...threadIds][0]! : null };
 }
 
-/**
- * Interpret one complete Amp --stream-json execution without making its
- * Claude-compatible wire shape a downstream Roster contract.
- */
-export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
+/** The validated records of an Amp --stream-json execution, whether or not it has ended. */
+interface AmpExecutionRecords {
+  threadIds: Set<string>;
+  terminal: Record<string, unknown> | undefined;
+  /** The terminal result's own token count, or null when it reports no usage or is absent. */
+  terminalTokens: number | null;
+  toolCallCount: number;
+  assistantCount: number;
+  assistantTokens: number;
+  assistantUsageComplete: boolean;
+}
+
+function readAmpExecutionRecords(stream: string): AmpExecutionRecords {
   const threadIds = new Set<string>();
-  let terminal: Record<string, unknown> | undefined;
+  let terminal: Record<string, unknown> | undefined = undefined;
+  let terminalTokens: number | null = null;
   let toolCallCount = 0;
   // Per-call usage, used only when the terminal result omits its own. `usage` is optional on
   // both records in Amp's stream-json schema, and current releases omit it from the result.
@@ -250,28 +261,83 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
           "Amp execution stream terminal result must be the final record.",
         );
       }
+      // A present terminal is validated here, so an unfinished-stream reader refuses the same
+      // malformed result the complete-stream reader does.
+      if (
+        typeof item.subtype !== "string" ||
+        item.subtype.trim().length === 0 ||
+        typeof item.is_error !== "boolean"
+      ) {
+        throw new NormalizationError(
+          "invalid_input",
+          "Amp execution terminal status or usage is invalid.",
+        );
+      }
+      if ("usage" in item) terminalTokens = usageTokenCount(item.usage, "terminal");
       terminal = item;
     }
   }
+  return {
+    threadIds,
+    terminal,
+    terminalTokens,
+    toolCallCount,
+    assistantCount,
+    assistantTokens,
+    assistantUsageComplete,
+  };
+}
+
+/**
+ * Read what a possibly unfinished Amp --stream-json execution already did: its thread and the
+ * tool calls its complete assistant records made. A run killed at its deadline has no terminal
+ * result and may end mid-record; only that unterminated final fragment is set aside, and every
+ * complete record is validated as `inspectAmpExecutionStream` validates it. This claims no
+ * success and no token count.
+ */
+export function inspectAmpExecutionActivity(stream: string): AmpExecutionActivity {
+  const tail = stream.slice(stream.lastIndexOf("\n") + 1);
+  let complete = stream;
+  if (tail.trim().length > 0) {
+    try {
+      JSON.parse(tail);
+    } catch {
+      complete = stream.slice(0, stream.length - tail.length);
+    }
+  }
+  const { threadIds, toolCallCount } = readAmpExecutionRecords(complete);
+  if (threadIds.size !== 1) {
+    throw new NormalizationError(
+      "invalid_input",
+      "Amp execution stream must contain one thread identity.",
+    );
+  }
+  return { threadId: [...threadIds][0]!, toolCallCount };
+}
+
+/**
+ * Interpret one complete Amp --stream-json execution without making its
+ * Claude-compatible wire shape a downstream Roster contract.
+ */
+export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
+  const {
+    threadIds,
+    terminal,
+    terminalTokens,
+    toolCallCount,
+    assistantCount,
+    assistantTokens,
+    assistantUsageComplete,
+  } = readAmpExecutionRecords(stream);
   if (threadIds.size !== 1 || terminal === undefined) {
     throw new NormalizationError(
       "invalid_input",
       "Amp execution stream must contain one thread identity and one terminal result.",
     );
   }
-  if (
-    typeof terminal.subtype !== "string" ||
-    terminal.subtype.trim().length === 0 ||
-    typeof terminal.is_error !== "boolean"
-  ) {
-    throw new NormalizationError(
-      "invalid_input",
-      "Amp execution terminal status or usage is invalid.",
-    );
-  }
   let tokenCount: number | null = null;
   if ("usage" in terminal) {
-    tokenCount = usageTokenCount(terminal.usage, "terminal");
+    tokenCount = terminalTokens;
   } else if (assistantCount > 0 && assistantUsageComplete) {
     tokenCount = assistantTokens;
   }
@@ -280,6 +346,12 @@ export function inspectAmpExecutionStream(stream: string): AmpExecutionStream {
     successful: terminal.is_error === false && terminal.subtype === "success",
     tokenCount,
     toolCallCount,
+    error:
+      terminal.is_error === true &&
+      typeof terminal.error === "string" &&
+      terminal.error.trim().length > 0
+        ? terminal.error
+        : null,
   };
 }
 
@@ -430,6 +502,11 @@ export {
   type DeepAgentsToolMessageData,
 } from "./adapters/deepagents/index.js";
 export { CANONICAL_SCHEMA_VERSION, NORMALIZER_VERSION } from "./version.js";
+export {
+  inspectAmpExecutionInit,
+  inspectClaudeCodeStream,
+  inspectCodexExecStream,
+} from "./execution-streams.js";
 
 export {
   listTrajectories,
@@ -443,7 +520,9 @@ export { DEFAULT_NORMALIZATION_FILTERS } from "./filters.js";
 export { validateTranscript } from "./validate.js";
 export {
   NormalizationError,
+  type AmpExecutionActivity,
   type AmpExecutionIdentity,
+  type AmpExecutionInit,
   type AmpExecutionStream,
   type AmpModelAttestation,
   type AssistantMessageRecord,
@@ -453,6 +532,8 @@ export {
   type CanonicalRecordType,
   type CanonicalResult,
   type CheckpointTrajectorySource,
+  type ClaudeCodeExecutionStream,
+  type CodexExecutionStream,
   type Diagnostic,
   type DiagnosticCode,
   type MetaRecord,

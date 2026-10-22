@@ -253,8 +253,8 @@ function invalidAtifTranscript() {
 // src/adapters/amp/index.ts
 var TERMINAL_TOOL_STATUSES = new Set(["done", "error", "cancelled"]);
 var NONTERMINAL_TOOL_STATUSES = new Set(["running", "pending"]);
-var ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming"]);
-var ASSISTANT_BLOCK_STATES = new Set(["complete", "pending"]);
+var ASSISTANT_MESSAGE_STATES = new Set(["complete", "streaming", "cancelled"]);
+var ASSISTANT_BLOCK_STATES = new Set(["complete", "pending", "streaming"]);
 var ampAdapter = {
   source: "amp",
   decode(transcript) {
@@ -272,6 +272,7 @@ var ampAdapter = {
     const protocolMessageIds = new Set;
     const toolCallCounts = new Map;
     const toolResultCounts = new Map;
+    const asyncTaskCallIds = new Set;
     let pendingAssistantAfter;
     for (let messageIndex = 0;messageIndex < root.messages.length; messageIndex += 1) {
       const message = root.messages[messageIndex];
@@ -344,7 +345,8 @@ var ampAdapter = {
           if (!callId || !isObject(block.run) || typeof block.run.status !== "string") {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} is malformed.`);
           }
-          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status)) {
+          const runningTask = block.run.status === "done" && asyncTaskCallIds.has(callId) && isObject(block.run.result) && block.run.result.status === "running";
+          if (NONTERMINAL_TOOL_STATUSES.has(block.run.status) || runningTask) {
             increment(toolResultCounts, callId);
             pendingAssistantAfter = undefined;
             diagnostics.push({
@@ -357,7 +359,12 @@ var ampAdapter = {
           if (!TERMINAL_TOOL_STATUSES.has(block.run.status)) {
             invalid(`Amp tool result ${messageIndex}:${componentIndex} has an unsupported status.`);
           }
-          if (!Object.hasOwn(block.run, "result")) {
+          let payload = block.run.result;
+          if (!Object.hasOwn(block.run, "result") && block.run.status === "error" && isObject(block.run.error) && nonemptyString(block.run.error.message)) {
+            payload = block.run.error;
+          } else if (!Object.hasOwn(block.run, "result") && block.run.status === "cancelled" && nonemptyString(block.run.reason)) {
+            payload = block.run.reason;
+          } else if (!Object.hasOwn(block.run, "result")) {
             invalid(`Amp terminal tool result ${messageIndex}:${componentIndex} must contain result.`);
           }
           increment(toolResultCounts, callId);
@@ -365,8 +372,8 @@ var ampAdapter = {
           events.push({
             type: "tool_result",
             callId,
-            content: resultText(block.run.result),
-            ok: block.run.status === "done",
+            content: resultText(payload),
+            ok: block.run.status === "done" && !(isObject(payload) && typeof payload.exitCode === "number" && payload.exitCode !== 0),
             ...timestamp ? { timestamp } : {},
             sourceRecordId,
             sourceSequence: messageIndex,
@@ -389,9 +396,11 @@ var ampAdapter = {
       }
       const fallbackTimestamp = parseTimestamp(isObject(message.usage) ? message.usage.timestamp : undefined);
       const model = nonemptyString(isObject(message.usage) ? message.usage.model : undefined);
+      const interruptedPlaceholder = message.state.type === "cancelled" && messageIndex === root.messages.length - 1 && !Object.hasOwn(message, "usage") && message.content.every((block) => !isObject(block) || block.blockState !== "complete");
       assistantModelObservations.push({
         sourceRecordId,
-        ...model ? { model } : {}
+        ...model ? { model } : {},
+        ...interruptedPlaceholder ? { interruptedPlaceholder: true } : {}
       });
       for (let componentIndex = 0;componentIndex < message.content.length; componentIndex += 1) {
         const block = message.content[componentIndex];
@@ -444,6 +453,10 @@ var ampAdapter = {
             invalid(`Amp tool use ${messageIndex}:${componentIndex} is malformed.`);
           }
           increment(toolCallCounts, callId);
+          if (name === "Task")
+            asyncTaskCallIds.add(callId);
+          else
+            asyncTaskCallIds.delete(callId);
           events.push({
             type: "tool_call",
             id: callId,
@@ -723,12 +736,6 @@ function toolResultEvent(content, callId, ok, inputLine, timestamp) {
 }
 
 // src/adapters/codex/index.ts
-var INJECTED_PREFIXES = [
-  "<environment_context>",
-  "<user_instructions>",
-  "<permissions instructions>",
-  "<turn_context>"
-];
 var codexAdapter = {
   source: "codex",
   decode(transcript) {
@@ -797,22 +804,13 @@ var codexAdapter = {
             ...timestamp ? { timestamp } : {}
           });
         } else if (role === "user") {
-          const head = content.trimStart();
-          if (INJECTED_PREFIXES.some((prefix) => head.startsWith(prefix))) {
-            diagnostics.push({
-              code: "injected_context_dropped",
-              message: `Dropped Codex system-injected user content on line ${line}.`,
-              inputLine: line
-            });
-          } else {
-            emit({
-              type: "message",
-              role: "user",
-              content,
-              inputLine: line,
-              ...timestamp ? { timestamp } : {}
-            });
-          }
+          emit({
+            type: "message",
+            role: "user",
+            content,
+            inputLine: line,
+            ...timestamp ? { timestamp } : {}
+          });
         } else if (role === "assistant") {
           emit({
             type: "message",
@@ -2053,6 +2051,29 @@ function decodePiSessionTranscript(transcript, options) {
       }
       continue;
     }
+    const injected = injectedContext(row);
+    if (injected !== undefined) {
+      sawMessageRow = true;
+      const timestamp2 = parseTimestamp(row.timestamp) ?? (isObject(row.message) ? messageTimestamp(row.message.timestamp) : undefined);
+      if (injected) {
+        events.push({
+          type: "message",
+          role: "user",
+          content: injected,
+          inputLine: line,
+          ...timestamp2 ? { timestamp: timestamp2 } : {},
+          ...typeof row.id === "string" && row.id ? { sourceRecordId: row.id } : { sourceOffset: byteOffset, sourceAnchorKind: "byte" },
+          componentIndex: 0
+        });
+      } else {
+        diagnostics.push({
+          code: "injected_context_dropped",
+          message: "pi context entry has no text content to preserve",
+          inputLine: line
+        });
+      }
+      continue;
+    }
     if (row.type !== "message" || !isObject(row.message))
       continue;
     sawMessageRow = true;
@@ -2157,6 +2178,70 @@ function decodePiSessionTranscript(transcript, options) {
     },
     diagnostics
   };
+}
+var COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+
+<summary>
+`;
+var COMPACTION_SUMMARY_SUFFIX = `
+</summary>`;
+var BRANCH_SUMMARY_PREFIX = `The following is a summary of a branch that this conversation came back from:
+
+<summary>
+`;
+var BRANCH_SUMMARY_SUFFIX = "</summary>";
+function injectedContext(row) {
+  if (row.type === "compaction")
+    return summaryText(row.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (row.type === "branch_summary") {
+    return row.summary ? summaryText(row.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX) : undefined;
+  }
+  if (row.type === "custom_message")
+    return blocksText(row.content);
+  if (row.type !== "message" || !isObject(row.message))
+    return;
+  const message = row.message;
+  if (message.role === "compactionSummary")
+    return summaryText(message.summary, COMPACTION_SUMMARY_PREFIX, COMPACTION_SUMMARY_SUFFIX);
+  if (message.role === "branchSummary")
+    return summaryText(message.summary, BRANCH_SUMMARY_PREFIX, BRANCH_SUMMARY_SUFFIX);
+  if (message.role === "custom")
+    return blocksText(message.content);
+  if (message.role === "bashExecution") {
+    if (!isBashExecution(message))
+      return "";
+    return message.excludeFromContext ? undefined : bashExecutionText(message);
+  }
+  return;
+}
+function summaryText(summary, prefix, suffix) {
+  return typeof summary === "string" ? prefix + summary + suffix : "";
+}
+function isBashExecution(message) {
+  const optional = (value, type) => value === undefined || typeof value === type;
+  return typeof message.command === "string" && typeof message.output === "string" && typeof message.cancelled === "boolean" && typeof message.truncated === "boolean" && (message.exitCode === null || optional(message.exitCode, "number")) && optional(message.fullOutputPath, "string") && optional(message.excludeFromContext, "boolean");
+}
+function bashExecutionText(message) {
+  let text = `Ran \`${message.command}\`
+`;
+  text += message.output ? `\`\`\`
+${message.output}
+\`\`\`` : "(no output)";
+  if (message.cancelled) {
+    text += `
+
+(command cancelled)`;
+  } else if (message.exitCode !== null && message.exitCode !== undefined && message.exitCode !== 0) {
+    text += `
+
+Command exited with code ${message.exitCode}`;
+  }
+  if (message.truncated && message.fullOutputPath) {
+    text += `
+
+[Output truncated. Full output: ${message.fullOutputPath}]`;
+  }
+  return text;
 }
 function messageTimestamp(value) {
   return parseTimestamp(value);
@@ -2784,6 +2869,8 @@ function planEvents(events) {
   const calls = new Map;
   const openCalls = new Map;
   const usedIds = new Set;
+  const unanswered = new Map;
+  const strayResults = new Set;
   const occOf = [];
   const bucketOf = [];
   let occurrence = -1;
@@ -2799,23 +2886,34 @@ function planEvents(events) {
     const bucket = semanticBucket(event);
     occOf.push(occurrence);
     bucketOf.push(bucket);
+    if (event.type === "tool_result") {
+      const sourceId = event.callId || "";
+      const remaining = unanswered.get(sourceId) ?? 0;
+      if (remaining > 0)
+        unanswered.set(sourceId, remaining - 1);
+      else
+        strayResults.add(sourceId);
+    }
     if (event.type === "tool_call") {
       const sourceId = event.id || `call_${index + 1}`;
       const synthesized = !event.id;
       let finalId = sourceId;
       let renamed = false;
+      let reused = false;
       if (usedIds.has(finalId)) {
         let suffix = 2;
         while (usedIds.has(`${sourceId}__${suffix}`))
           suffix += 1;
         finalId = `${sourceId}__${suffix}`;
         renamed = true;
+        reused = (unanswered.get(sourceId) ?? 0) === 0 && !strayResults.has(sourceId);
       }
       usedIds.add(finalId);
+      unanswered.set(sourceId, (unanswered.get(sourceId) ?? 0) + 1);
       const entries = openCalls.get(sourceId) ?? [];
       entries.push({ finalId, consumed: false });
       openCalls.set(sourceId, entries);
-      calls.set(index, { finalId, renamed, synthesized, sourceId });
+      calls.set(index, { finalId, renamed, reused, synthesized, sourceId });
     }
   }
   const seen = new Map;
@@ -2974,8 +3072,8 @@ function normalizeEvent(event, eventIndex, recordIndex, plan, diagnostics, bound
     }
     if (entry?.renamed) {
       diagnostics.push({
-        code: "duplicate_tool_call_id",
-        message: `Renamed duplicate tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
+        code: entry.reused ? "tool_call_id_reused" : "duplicate_tool_call_id",
+        message: `Renamed ${entry.reused ? "reused" : "duplicate"} tool-call ID ${JSON.stringify(sourceId2)} to ${JSON.stringify(finalId2)}.`,
         recordIndex,
         ...event.inputLine ? { inputLine: event.inputLine } : {}
       });
