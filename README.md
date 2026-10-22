@@ -30,6 +30,12 @@ The Python wrapper is published as
 pip install agent-trajectory
 ```
 
+If publishing fails after the version tag was pushed, run **Publish existing
+release tag** on that tag (`gh workflow run publish-existing-tag.yml --ref vX.Y.Z`).
+It rebuilds and publishes missing npm/PyPI distributions without another bump
+or tag. The retry requires a tag containing this workflow, so it cannot recover
+older tags. Do not rerun the bump workflow after a tag was pushed.
+
 ## Quick start
 
 ```ts
@@ -171,6 +177,36 @@ The public function is:
 ```ts
 normalizeTranscript(input: NormalizeInput): NormalizeResult
 ```
+
+## Imported conversations (separate API)
+
+Slack channels are multi-party conversations, not agent execution traces. They use
+an independent [conversation schema](schema/conversation-v1.schema.json) and API:
+
+```ts
+import { normalizeConversation } from "@letta-ai/trajectory/conversations";
+
+const { records, diagnostics } = normalizeConversation({
+  source: "slack",
+  transcript: rawJsonl, // one channel's messages, as fetched
+  channel: "C0AB…",
+  channelName: "eng-deploys", // optional
+  users, // optional users.list rows, for display names and bot flags
+});
+```
+
+One channel is one conversation: a leading `meta` with a participants table,
+then top-level posts in time order with thread replies nested once under their
+root. Python exposes `normalize_conversation` from `trajectory.conversations`.
+The format does not extend `NormalizedRecord`, `normalizeTranscript`, or
+`normalizeToCanonical`; agent schemas and canonical schema version remain
+unchanged.
+
+See [CONVERSATIONS.md](CONVERSATIONS.md) for the contract and
+[Slack](src/adapters/slack/) for thread assembly and supported content. Slack is
+the only conversation adapter in V0. Speaker names, reaction counts, and file
+placeholders are supported; recipients, file contents, and other message metadata
+remain deferred.
 
 ## Adding a source
 
