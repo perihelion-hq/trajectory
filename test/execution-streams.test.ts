@@ -136,6 +136,18 @@ describe("inspectClaudeCodeStream", () => {
       terminalFailure: { apiErrorStatus: 529, text: "Overloaded" },
     });
     expect(inspectClaudeCodeStream(lines(assistant("claude-a", []))).sessionId).toBeNull();
+
+    // A subagent or sidechain result after the main one does not replace it.
+    const main = { type: "result", session_id: session, is_error: false, modelUsage: {
+      "claude-a": { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+    } };
+    const excluded = lines(
+      { type: "system", subtype: "init", session_id: session },
+      main,
+      { type: "result", session_id: session, parent_tool_use_id: "t1", is_error: true, result: "sub failed", modelUsage: {} },
+      { type: "result", session_id: session, isSidechain: true, is_error: true, result: "side failed", modelUsage: {} },
+    );
+    expect(inspectClaudeCodeStream(excluded)).toMatchObject({ tokenCount: 2, terminalFailure: null });
   });
 });
 

@@ -123,10 +123,8 @@ export function inspectCodexExecStream(stream: string): CodexExecutionStream {
       else tokens += turn;
     } else if (kind === "turn.failed" || kind === "error") {
       // Each failure event replaces the last: the final one is why the run ended.
-      const message =
-        kind === "turn.failed"
-          ? (isObject(event.error) ? event.error.message : undefined)
-          : event.message;
+      const turnErrorMessage = isObject(event.error) ? event.error.message : undefined;
+      const message = kind === "turn.failed" ? turnErrorMessage : event.message;
       terminalError = typeof message === "string" ? message : null;
     } else if (kind === "item.started" || kind === "item.completed") {
       const item = isObject(event.item) ? event.item : {};
@@ -186,19 +184,20 @@ export function inspectClaudeCodeStream(stream: string): ClaudeCodeExecutionStre
   const failed = new Set<string>();
   let result: JsonObject | null = null;
   for (const record of records) {
-    if (sessionId === null || record.session_id !== sessionId) continue;
+    if (
+      sessionId === null ||
+      record.session_id !== sessionId ||
+      (record.parent_tool_use_id !== null && record.parent_tool_use_id !== undefined) ||
+      record.isSidechain === true
+    ) {
+      continue;
+    }
     if (record.type === "result") {
       // The last main-session result decides.
       result = record;
       continue;
     }
-    if (
-      (record.type !== "user" && record.type !== "assistant") ||
-      record.parent_tool_use_id != null ||
-      record.isSidechain === true
-    ) {
-      continue;
-    }
+    if (record.type !== "user" && record.type !== "assistant") continue;
     const message = isObject(record.message) ? record.message : {};
     const blocks = Array.isArray(message.content) ? message.content.filter(isObject) : [];
     if (record.type === "assistant") {
