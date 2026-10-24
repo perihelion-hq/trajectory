@@ -338,6 +338,19 @@ var ampAdapter = {
             });
             continue;
           }
+          if (block.type === "image") {
+            pendingAssistantAfter = "user";
+            events.push({
+              type: "message",
+              role: "user",
+              content: "[image]",
+              ...timestamp ? { timestamp } : {},
+              sourceRecordId,
+              sourceSequence: messageIndex,
+              componentIndex
+            });
+            continue;
+          }
           if (block.type !== "tool_result") {
             invalid(`Amp user block ${messageIndex}:${componentIndex} has an unsupported type.`);
           }

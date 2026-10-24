@@ -8,17 +8,19 @@ does not select a different parser.
 The root thread `id` is the source group. Message array position is source order,
 `protocolMessageID` is native record identity, and content array position is component order. User
 and assistant text, plaintext assistant thinking, assistant tool uses, and user tool results become
-the corresponding decoded events. Structured tool result status is authoritative: `done` maps to
-`ok: true`, except a `done` result whose numeric `exitCode` is nonzero (a shell command that
-exited with failure), while `error` and `cancelled` map to `ok: false`. A cancelled result that
-carries only Amp's `reason` uses that reason as its content, and an `error` result that carries
-only `error.message` uses that error object. Object-valued results are serialized as
-JSON so native fields are not discarded. User send times, assistant block times, assistant usage
-times/model, initial cwd, and a single repository-tree ref are preserved when present.
+the corresponding decoded events. A user `image` block becomes its own user message `[image]`, as
+the Claude Code adapter renders an image; its bytes and source path are not kept. Structured tool
+result status is authoritative: `done` maps to `ok: true`, except a `done` result whose numeric
+`exitCode` is nonzero (a shell command that exited with failure), while `error` and `cancelled` map
+to `ok: false`. A cancelled result that carries only Amp's `reason` uses that reason as its content,
+and an `error` result that carries only `error.message` uses that error object. Object-valued
+results are serialized as JSON so native fields are not discarded. User send times, assistant block
+times, assistant usage times/model, initial cwd, and a single repository-tree ref are preserved when
+present.
 
 Amp has no session-end event. An incomplete assistant turn or block, `running`/`pending` or missing
-tool result, terminal tool-result tail awaiting assistant continuation, or unmatched final text user
-turn therefore produces `incomplete_transcript`; it is not promoted to a fabricated session
+tool result, terminal tool-result tail awaiting assistant continuation, or unmatched final user turn
+therefore produces `incomplete_transcript`; it is not promoted to a fabricated session
 terminal. Existing core diagnostics continue to own orphan/duplicate tool results, duplicate call
 IDs, bounds, and timestamp synthesis/interpolation. Measured `info` records containing summary
 blocks are compaction/transport artifacts and are dropped with `noise_record_dropped` because the
