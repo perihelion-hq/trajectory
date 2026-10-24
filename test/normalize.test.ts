@@ -532,6 +532,25 @@ describe("public API", () => {
     expect(other.records.some((record) => record.role === "tool")).toBe(true);
   });
 
+  test("reads an Amp user image block as an [image] message without its bytes", () => {
+    const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
+    const user = exportDocument.messages.find((message: { role?: string }) => message.role === "user");
+    user.content.push({
+      type: "image",
+      source: { type: "base64", mediaType: "image/png", data: "iVBORw0KGgoPRIVATEBYTES" },
+      sourcePath: "/home/privateUser/screenshot.png",
+    });
+    const result = normalizeTranscript({ source: "amp", transcript: JSON.stringify(exportDocument) });
+    const userContents = result.records
+      .filter((record) => record.role === "user")
+      .map((record) => record.content);
+
+    const text = user.content.find((block: { type?: string }) => block.type === "text").text;
+    expect(userContents).toContain("[image]");
+    expect(userContents).toContain(text);
+    expect(JSON.stringify(result.records)).not.toMatch(/PRIVATEBYTES|privateUser/);
+  });
+
   test("reads a done Amp shell result with a nonzero exit code as failed", () => {
     const exportDocument = JSON.parse(fixtureText("amp/orb-thread-export", "input.json"));
     const toolResult = exportDocument.messages

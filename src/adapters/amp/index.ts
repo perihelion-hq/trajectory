@@ -116,6 +116,21 @@ export const ampAdapter: SourceAdapter = {
             });
             continue;
           }
+          if (block.type === "image") {
+            // An attached image is model-visible input. It reads as the other adapters render an
+            // image; its bytes and source path are not kept.
+            pendingAssistantAfter = "user";
+            events.push({
+              type: "message",
+              role: "user",
+              content: "[image]",
+              ...(timestamp ? { timestamp } : {}),
+              sourceRecordId,
+              sourceSequence: messageIndex,
+              componentIndex,
+            });
+            continue;
+          }
           if (block.type !== "tool_result") {
             invalid(`Amp user block ${messageIndex}:${componentIndex} has an unsupported type.`);
           }
