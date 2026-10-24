@@ -117,8 +117,8 @@ export const ampAdapter: SourceAdapter = {
             continue;
           }
           if (block.type === "image") {
-            // An attached image is model-visible input. It reads as the other adapters render an
-            // image; its bytes and source path are not kept.
+            // An attached image is model-visible input. It reads as the Claude Code adapter renders
+            // an image, as its own user message; its bytes and source path are not kept.
             pendingAssistantAfter = "user";
             events.push({
               type: "message",
