@@ -25,6 +25,9 @@ export const cursorAdapter: SourceAdapter = {
       transcript,
       diagnostics,
     )) {
+      // Cursor writes a bare per-turn control row, `{"type":"turn_ended","status":...}`, between
+      // turns of some transcripts. It carries no message, so it is not a dropped record.
+      if (row.type === "turn_ended" && row.role === undefined) continue;
       if (
         (row.role !== "user" && row.role !== "assistant") ||
         !isObject(row.message)
@@ -78,12 +81,16 @@ export const cursorAdapter: SourceAdapter = {
             ...(model ? { model } : {}),
           });
         } else if (block.type === "tool_use") {
+          // Cursor's own transcript gives a tool_use no id, so an id derived from the block's
+          // place is the format's identity, not a lost one; the row is append-only, so it is
+          // stable as the transcript grows.
           emit({
             type: "tool_call",
             args: jsonString(block.input),
-            ...(typeof block.id === "string" && block.id
-              ? { id: block.id }
-              : {}),
+            id:
+              typeof block.id === "string" && block.id
+                ? block.id
+                : `cursor_line_${line}_${componentIndex}`,
             ...(typeof block.name === "string" && block.name
               ? { name: block.name }
               : {}),

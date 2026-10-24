@@ -167,6 +167,42 @@ describe("new source-native identity", () => {
     ).toThrow(expect.objectContaining({ code: "source_group_required" }));
   });
 
+  test("Cursor's own id-less tool calls and turn rows are not reported as loss", () => {
+    const head =
+      '{"role":"user","message":{"content":[{"type":"text","text":"List it."}]}}\n' +
+      '{"role":"assistant","message":{"content":[{"type":"text","text":"Listing."},' +
+      '{"type":"tool_use","name":"Shell","input":{"command":"ls"}},' +
+      '{"type":"tool_use","name":"Glob","input":{"glob_pattern":"*"}}]}}\n' +
+      '{"type":"turn_ended","status":"success"}\n';
+    const tail =
+      '{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"path":"a"}}]}}\n';
+    const normalize = (transcript: string) =>
+      normalizeToCanonical({
+        source: "cursor",
+        transcript,
+        sourceContext: { groupId: "cursor-native-session" },
+      });
+    const first = normalize(head);
+    const appended = normalize(head + tail);
+    const callIds = (result: typeof first) =>
+      result.records
+        .filter((record) => record.record_type === "assistant-tool-call")
+        .map((record) => record.tool_call_id);
+    expect(callIds(first)).toEqual(["cursor_line_2_1", "cursor_line_2_2"]);
+    expect(callIds(appended)).toEqual([
+      "cursor_line_2_1",
+      "cursor_line_2_2",
+      "cursor_line_4_0",
+    ]);
+    expect(
+      appended.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.code === "tool_call_id_synthesized" ||
+          diagnostic.code === "noise_record_dropped",
+      ),
+    ).toEqual([]);
+  });
+
   test("Gemini CLI messages-only exports require an explicit canonical group", () => {
     const transcript = JSON.stringify({
       messages: [
