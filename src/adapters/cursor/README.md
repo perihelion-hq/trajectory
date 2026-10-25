@@ -11,11 +11,15 @@ Content may also be a scalar string. `text`, `thinking`, `tool_use`, and
 Tool arguments remain structured JSON. When present, block call IDs and
 `is_error` are preserved.
 
-The observed SWE-chat Cursor capture omits timestamps, top-level record IDs,
-tool-call IDs, and tool results. In that native subset the shared core
-synthesizes deterministic timestamps and call IDs, while canonical source
-identity anchors to each JSONL row's UTF-8 byte offset. The adapter also accepts
-the same content-block shape when IDs or results are present.
+The observed SWE-chat Cursor capture, and the transcript Cursor itself writes
+under `~/.cursor/projects/<project>/agent-transcripts/`, omit timestamps,
+top-level record IDs, tool-call IDs, and tool results. In that native subset the
+shared core synthesizes deterministic timestamps, the adapter names an id-less
+`tool_use` `cursor_line_<line>_<component>` (the format has no call ID to lose,
+so no `tool_call_id_synthesized` diagnostic is reported), and canonical source
+identity anchors to each JSONL row's UTF-8 byte offset. A bare
+`{"type":"turn_ended"}` control row is skipped without a diagnostic. The adapter
+also accepts the same content-block shape when IDs or results are present.
 
 The transcript itself has no session identifier. Callers using
 `normalizeToCanonical()` must therefore pass the corpus/session ID as

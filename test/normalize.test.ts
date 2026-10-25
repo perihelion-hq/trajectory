@@ -1490,7 +1490,7 @@ describe("public API", () => {
     ).toThrow(expect.objectContaining({ code: "invalid_input" }));
   });
 
-  test("synthesizes Cursor tool-call ids when the capture omits them", () => {
+  test("names id-less Cursor tool calls by transcript line without reporting loss", () => {
     const transcript = [
       JSON.stringify({
         role: "user",
@@ -1516,8 +1516,8 @@ describe("public API", () => {
     );
     expect(call?.role === "assistant" && call.content === null
       ? call.tool_calls[0]?.id
-      : undefined).toBe("call_2");
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      : undefined).toBe("cursor_line_2_0");
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
       "tool_call_id_synthesized",
     );
   });
